@@ -1,0 +1,41 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# Eng muhimi: Maxfiy kalitlar fayli
+.env
+.env.local
+
+# Kutubxonalar (juda og'ir bo'lgani uchun yuklanmaydi)
+node_modules/
+
+# Tayyor sayt (Build) papkasi
+dist/
+build/
+
+# Tizim fayllari (MacBook uchun)
+.DS_Store
+
+# Loglar (Xatoliklar tarixi)
+*.log
+npm-debug.log*
