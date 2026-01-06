@@ -9,9 +9,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Loglarni ko'rish uchun (Debug)
+// Loglarni ko'rish (Debug uchun)
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
+  console.log(`[${req.method}] ${req.path}`);
   next();
 });
 
@@ -19,87 +19,59 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY, 
 });
 
-app.get('/', (req, res) => res.send('AI Server (GPT-4o-mini) ishlayapti! ✅'));
+app.get('/', (req, res) => res.send('AI Server (Teacher-Match Logic) ishlayapti! ✅'));
 
-// 1. JAVOBNI TEKSHIRISH
+// JAVOBNI TEKSHIRISH VA USTOZ BILAN SOLISHTIRISH
 app.post('/check-answer', async (req, res) => {
-  const { original, userAnswer } = req.body;
+  const { original, userAnswer, correctTranslation } = req.body;
 
-  // Logga chiqarib ko'ramiz nima kelayotganini
+  // Konsolda tekshirish
+  console.log("------------------------------------------------");
   console.log("Savol:", original);
-  console.log("Javob:", userAnswer);
+  console.log("Ustoz:", correctTranslation);
+  console.log("O'quvchi:", userAnswer);
 
   if (!original || !userAnswer) {
-    return res.status(400).json({ error: "Ma'lumot yo'q" });
+    return res.status(400).json({ error: "Ma'lumotlar yetarli emas" });
   }
 
   try {
-    // Promptni Soddalashtiramiz va Aniq qilamiz
     const prompt = `
-      Sen professional tarjimon va o'qituvchisan.
-      Vazifa: Ingliz tilidagi gapning o'zbekcha tarjimasini tekshirish.
+      Sen adolatli til o'qituvchisisan. 
+      Vazifa: O'quvchining tarjimasini tekshirish.
 
-      Original (EN): "${original}"
-      O'quvchi tarjimasi (UZ): "${userAnswer}"
+      1. Original gap (EN): "${original}"
+      2. Ustozning tarjimasi (UZ): "${correctTranslation}"
+      3. O'quvchining javobi (UZ): "${userAnswer}"
 
-      Talablar:
-      1. Baho (1-5): Ma'no to'g'ri bo'lsa 5 yoki 4 qo'y. Grammatik xato bo'lsa ham ma'no to'g'ri bo'lsa past baho qo'yma.
-      2. Feedback: Agar xato bo'lsa, o'zbek tilida qisqa tushuntir. Agar to'g'ri bo'lsa "Barakalla!" de.
-      3. Correction: Eng tabiiy va to'g'ri o'zbekcha variantni yoz.
+      BAHOLASH QOIDASI (JUDAM MUHIM):
+      - Agar o'quvchining javobi ustozniki bilan deyarli BIR XIL bo'lsa -> 5 ball.
+      - Agar o'quvchi SINONIMLAR ishlatsa (masalan: "avtomobil" o'rniga "mashina", "yaxshi ko'raman" o'rniga "sevaman") va MA'NO SAQLANSA -> 5 ball.
+      - Agar ma'no to'g'ri, lekin kichik grammatik xato bo'lsa -> 4 ball.
+      - Agar ma'no o'zgargan yoki tarjima noto'g'ri bo'lsa -> 3 yoki undan past.
 
-      Javob JSON formatida bo'lsin:
+      Javobni JSON formatida qaytar:
       {
         "score": 5,
-        "feedback": "...",
-        "correction": "..."
+        "feedback": "Qisqa izoh: Nega bu bahoni qo'yding? (O'zbek tilida)",
+        "correction": "To'g'ri javobni ko'rsat (Ustoznikini yoki undan ham yaxshisini)"
       }
     `;
 
     const completion = await openai.chat.completions.create({
       messages: [{ role: "system", content: prompt }],
-      model: "gpt-4o-mini", // 🔥 ENG MUHIM O'ZGARISH (Arzon va Aqlli)
+      model: "gpt-4o-mini", 
       response_format: { type: "json_object" },
-      temperature: 0.2, // Pastroq qildik, shunda u aniq javob beradi, "ijod" qilmaydi
+      temperature: 0.2, // Aniq javob uchun past harorat
     });
 
     const aiResult = JSON.parse(completion.choices[0].message.content);
-    
-    console.log("AI Javobi:", aiResult); // Serverda javobni ko'rish uchun
+    console.log("AI Xulosasi:", aiResult); // Log
     res.json(aiResult);
 
   } catch (error) {
     console.error("AI Xatoligi:", error);
-    res.status(500).json({ error: "AI serverda xatolik" });
-  }
-});
-
-// 2. XULOSA YASASH (SUMMARY)
-app.post('/create-summary', async (req, res) => {
-  const { history } = req.body;
-
-  if (!history || history.length === 0) return res.json({ summary: "Ma'lumot yetarli emas." });
-
-  try {
-    const historyText = history.map(h => `Savol: "${h.question}" | Javob: "${h.userAnswer}" | Ball: ${h.score}`).join("\n");
-
-    const prompt = `
-      Quyidagi test natijalariga qarab, o'qituvchi uchun o'zbek tilida qisqa hisobot yoz.
-      Faqat o'quvchining xatolariga urg'u ber.
-      
-      Natijalar:
-      ${historyText}
-    `;
-
-    const completion = await openai.chat.completions.create({
-      messages: [{ role: "system", content: prompt }],
-      model: "gpt-4o-mini", // Bu ham yangilandi
-    });
-
-    res.json({ summary: completion.choices[0].message.content });
-
-  } catch (error) {
-    console.error("Summary Error:", error);
-    res.json({ summary: "Hisobot yaratishda xatolik." });
+    res.status(500).json({ error: "Serverda xatolik yuz berdi" });
   }
 });
 

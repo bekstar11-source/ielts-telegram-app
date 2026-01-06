@@ -15,10 +15,9 @@ const LessonPage = () => {
   const [isChecking, setIsChecking] = useState(false);
   const [totalScore, setTotalScore] = useState(0);
   const [showExplanation, setShowExplanation] = useState(false);
-
-  // 🔥 YANGI: Tarixni saqlash uchun
+  
+  // Javoblar tarixi
   const [history, setHistory] = useState([]);
-  const [isSaving, setIsSaving] = useState(false); // Yakuniy yuklash holati
 
   useEffect(() => {
     const fetchLesson = async () => {
@@ -42,18 +41,20 @@ const LessonPage = () => {
 
   const checkAnswer = async () => {
     const text = userAnswer.trim();
-    if (!text || text.split(/\s+/).length < 3) {
-      alert("⚠️ Javob juda qisqa (kamida 3 ta so'z yozing)!");
+    if (!text || text.split(/\s+/).length < 2) {
+      alert("⚠️ Iltimos, to'liqroq javob yozing.");
       return;
     }
     
     setIsChecking(true);
     try {
+      // Serverga so'rov (Ustoz tarjimasi bilan birga)
       const response = await fetch('https://ielts-telegram-app.onrender.com/check-answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           original: lesson.sentences[currentIndex].original,
+          correctTranslation: lesson.sentences[currentIndex].translation || "", // Ustoz varianti
           userAnswer: userAnswer,
         })
       });
@@ -62,53 +63,38 @@ const LessonPage = () => {
       setAiFeedback(data);
       setTotalScore(prev => prev + (data.score || 0));
 
-      // 🔥 TARIXGA YOZISH (Faqat muhim joylarini)
+      // Tarixga yozish
       setHistory(prev => [...prev, {
         question: lesson.sentences[currentIndex].original,
+        teacherTrans: lesson.sentences[currentIndex].translation,
         userAnswer: userAnswer,
         score: data.score,
-        mistake: data.score < 5 ? data.feedback : "To'g'ri" // Agar 5 bo'lsa xato yo'q
+        feedback: data.feedback
       }]);
 
     } catch (error) {
-      alert("AI ishlamadi. Internetni tekshiring.");
+      console.error(error);
+      alert("Server bilan aloqa yo'q.");
     } finally {
       setIsChecking(false);
     }
   };
 
-  // 🔥 Darsni tugatish va Xulosa yasash
   const finishLesson = async () => {
-    setIsSaving(true);
-    let summaryText = "Xulosa mavjud emas";
-
     try {
-      // 1. Serverdan xulosa so'rash
-      const summaryRes = await fetch('https://ielts-telegram-app.onrender.com/create-summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history })
-      });
-      const summaryData = await summaryRes.json();
-      summaryText = summaryData.summary;
-
-      // 2. Hammasini Firebasega saqlash
       await addDoc(collection(db, "results"), {
         studentName: localStorage.getItem('studentName') || "Noma'lum",
         lessonTitle: lesson.title,
         totalScore: totalScore,
         maxScore: lesson.sentences.length * 5,
-        history: history,    // Hamma javoblar
-        aiSummary: summaryText, // AI xulosasi
+        history: history, // Tarixni to'liq saqlaymiz
         date: serverTimestamp()
       });
 
-      alert(`Dars tugadi! 🎉\nO'qituvchi uchun xulosa yuborildi.`);
+      alert(`Dars tugadi! 🎉 Ballingiz: ${totalScore}`);
       navigate('/');
-
     } catch (e) {
-      console.error(e);
-      alert("Saqlashda xato bo'ldi, lekin davom etavering.");
+      alert("Natijani saqlashda xatolik.");
       navigate('/');
     }
   };
@@ -122,19 +108,11 @@ const LessonPage = () => {
       setAiFeedback(null);
       setUserAnswer('');
     } else {
-      finishLesson(); // Dars tugash funksiyasini chaqirish
+      finishLesson();
     }
   };
 
   if (!lesson) return <div className="text-center p-10">Yuklanmoqda...</div>;
-  if (isSaving) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-white p-5 text-center">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-      <h2 className="text-xl font-bold text-gray-800">Natijalar tahlil qilinmoqda...</h2>
-      <p className="text-gray-500 text-sm mt-2">AI o'qituvchiga hisobot tayyorlayapti 📝</p>
-    </div>
-  );
-
   const progress = ((currentIndex + 1) / lesson.sentences.length) * 100;
 
   return (
@@ -172,13 +150,8 @@ const LessonPage = () => {
             className="w-full p-4 h-36 rounded-2xl border-none shadow-sm outline-none focus:ring-2 ring-[#2481cc]/50 transition-all bg-white text-lg resize-none placeholder-gray-300"
             placeholder="O'zbekcha tarjimasini kiriting..."
           />
-          
           {!aiFeedback && (
-            <button 
-              onClick={checkAnswer} 
-              disabled={isChecking || !userAnswer.trim()} 
-              className="w-full bg-[#2481cc] text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform"
-            >
+            <button onClick={checkAnswer} disabled={isChecking || !userAnswer.trim()} className="w-full bg-[#2481cc] text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform">
               {isChecking ? "Tekshirilmoqda... ⏳" : "TEKSHIRISH"}
             </button>
           )}
@@ -194,18 +167,13 @@ const LessonPage = () => {
                 </span>
                 <span className="font-bold text-xl">Baho: {aiFeedback.score}/5</span>
               </div>
-              
               <div className="bg-black/10 p-3 rounded-xl border border-white/10 mb-3">
                 <p className="text-[10px] uppercase font-bold opacity-60 mb-1">To'g'ri javob:</p>
                 <p className="font-medium text-white">{aiFeedback.correction}</p>
               </div>
-
               {!showExplanation ? (
-                <button 
-                  onClick={() => setShowExplanation(true)}
-                  className="w-full bg-white/20 hover:bg-white/30 text-white py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                >
-                  ❓ Nega xato qildim?
+                <button onClick={() => setShowExplanation(true)} className="w-full bg-white/20 hover:bg-white/30 text-white py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+                  ❓ Izoh
                 </button>
               ) : (
                 <div className="bg-white/10 p-3 rounded-xl mt-3 animate-in fade-in">
@@ -215,12 +183,8 @@ const LessonPage = () => {
               )}
                <div className={`absolute -right-2 top-0 w-0 h-0 border-t-[10px] border-t-${aiFeedback.score >= 4 ? 'green-500' : '[#2481cc]'} border-r-[10px] border-r-transparent`}></div>
             </div>
-
-            <button 
-              onClick={nextSentence} 
-              className="w-full bg-white text-gray-800 border-2 border-gray-100 py-4 rounded-xl font-bold text-lg shadow-sm active:scale-95 transition-transform hover:bg-gray-50"
-            >
-              {currentIndex < lesson.sentences.length - 1 ? "KEYINGI GAP →" : "NATIJANI YUKLASH 🏁"}
+            <button onClick={nextSentence} className="w-full bg-white text-gray-800 border-2 border-gray-100 py-4 rounded-xl font-bold text-lg shadow-sm active:scale-95 transition-transform hover:bg-gray-50">
+              {currentIndex < lesson.sentences.length - 1 ? "KEYINGI GAP →" : "NATIJANI SAQLASH 🏁"}
             </button>
           </div>
         )}
