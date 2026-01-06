@@ -7,11 +7,17 @@ dotenv.config();
 
 const app = express();
 
-// 1. Timeoutni oshiramiz va Payload hajmini kattalashtiramiz
-app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Katta ma'lumotlar uchun
+// 🔥 1. CORS MUAMMOSINI HAL QILISH (Hamma joyga ruxsat)
+app.use(cors({
+  origin: '*', 
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-// Log: Har bir so'rovni ko'rish
+// Payload hajmini oshirish (Katta testlar uchun)
+app.use(express.json({ limit: '50mb' }));
+
+// Loglarni ko'rish (Render Logs da chiqadi)
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
@@ -21,44 +27,47 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY, 
 });
 
-app.get('/', (req, res) => res.send('AI Server (Debug Mode) ishlayapti! ✅'));
+// Server tirikligini tekshirish
+app.get('/', (req, res) => res.send('IELTS AI Server (Quiz Mode) Active! ✅'));
 
-// 🔥 JAVOBLARNI TEKSHIRISH (DEBUG VERSIYASI)
+// 🔥 2. ASOSIY TEKSHIRISH ROUTE-I
 app.post('/check-quiz', async (req, res) => {
   const { quizData } = req.body;
 
-  // 1. Ma'lumot borligini tekshirish
+  // Ma'lumot kelganini tekshirish
   if (!quizData || !Array.isArray(quizData)) {
-    console.error("XATO: quizData noto'g'ri formatda keldi");
+    console.error("XATO: quizData noto'g'ri formatda");
     return res.status(400).json({ error: "Ma'lumotlar noto'g'ri formatda" });
   }
 
-  console.log(`--> ${quizData.length} ta savol tekshirishga keldi...`);
+  console.log(`--> ${quizData.length} ta savol tekshirishga keldi.`);
 
   try {
-    // 2. Promptni tayyorlash
+    // AI uchun ma'lumotni tayyorlash
     const quizText = JSON.stringify(quizData.map((item, index) => ({
       id: index,
       savol: item.question,
-      ustoz: item.correctTranslation,
-      oquvchi: item.userAnswer
+      ustoz_javobi: item.correctTranslation,
+      oquvchi_javobi: item.userAnswer
     })));
 
     const prompt = `
-      Sen IELTS Examiner'san. Quyidagi testni tekshir.
+      Sen qattiqqo'l IELTS Examiner'san. Quyidagi o'quvchi javoblarini tekshir.
       
       INPUT:
       ${quizText}
 
-      QOIDALAR:
-      - 5 ball: Ma'no va Grammatika to'g'ri.
-      - 4 ball: Kichik xato.
-      - 3 ball: Grammatik xato (zamon, fe'l).
-      - 1-2 ball: Noto'g'ri.
+      BAHOLASH MEZONI (RUBRIC):
+      - 5 ball: Ma'no to'g'ri VA Grammatika/Vocabulary xatosiz.
+      - 4 ball: Ma'no to'g'ri, lekin kichik grammatik xato (artikl, spelling).
+      - 3 ball: Jiddiy grammatik xato (zamonlar, noto'g'ri fe'l) yoki so'z noto'g'ri tanlangan.
+      - 1-2 ball: Ma'no noto'g'ri yoki tarjima yo'q.
 
-      MUHIM: Javobing FAQAT va FAQAT toza JSON bo'lsin. Hech qanday so'z qo'shma. Markdown (\\\`\\\`\\\`) ishlatma.
-      
-      FORMAT:
+      MUHIM: 
+      - Grammatikaga qattiq qara. "I go now" o'rniga "I going now" desa jazolab past ball qo'y.
+      - Izohda xatoni aniq ko'rsat.
+
+      JAVOB FORMATI (JSON bo'lishi SHART):
       {
         "results": [
           { "id": 0, "score": 0, "feedback": "...", "correction": "..." }
@@ -66,48 +75,24 @@ app.post('/check-quiz', async (req, res) => {
       }
     `;
 
-    // 3. AI ga so'rov yuborish
     const completion = await openai.chat.completions.create({
       messages: [{ role: "system", content: prompt }],
       model: "gpt-4o-mini",
-      response_format: { type: "json_object" }, // Majburiy JSON
+      response_format: { type: "json_object" },
       temperature: 0.2,
     });
 
+    // JSONni tozalash va Parse qilish
     let rawContent = completion.choices[0].message.content;
-    console.log("--> AI Javob qaytardi (Raw):", rawContent.substring(0, 100) + "..."); // Logga yozamiz
-
-    // 4. JSONni tozalash (Eng muhim qism)
-    // Ba'zan AI baribir ```json deb yozadi, shuni tozalaymiz
-    if (rawContent.includes("```")) {
-      rawContent = rawContent.replace(/```json/g, "").replace(/```/g, "");
-    }
+    rawContent = rawContent.replace(/```json/g, "").replace(/```/g, "").trim();
     
-    // JSON qayerdan boshlanib qayerda tugashini topamiz
-    const jsonStart = rawContent.indexOf('{');
-    const jsonEnd = rawContent.lastIndexOf('}');
-    
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      rawContent = rawContent.substring(jsonStart, jsonEnd + 1);
+    const parsedData = JSON.parse(rawContent);
+
+    if (!parsedData.results) {
+      throw new Error("AI noto'g'ri format qaytardi");
     }
 
-    // 5. Parse qilish
-    let parsedData;
-    try {
-      parsedData = JSON.parse(rawContent);
-    } catch (parseError) {
-      console.error("JSON PARSE ERROR:", parseError);
-      console.error("BUZILGAN CONTENT:", rawContent);
-      return res.status(500).json({ error: "AI javobini o'qib bo'lmadi. Qayta urining." });
-    }
-
-    // 6. Natijani tekshirish
-    if (!parsedData.results || !Array.isArray(parsedData.results)) {
-      console.error("FORMAT XATOSI: 'results' array yo'q");
-      return res.status(500).json({ error: "AI formati noto'g'ri." });
-    }
-
-    console.log("--> Muvaffaqiyatli yuborildi ✅");
+    console.log("--> Muvaffaqiyatli tekshirildi ✅");
     res.json(parsedData.results);
 
   } catch (error) {

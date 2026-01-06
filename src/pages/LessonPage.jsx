@@ -11,10 +11,12 @@ const LessonPage = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState('');
   
+  // Imtihon holatlari
   const [quizAnswers, setQuizAnswers] = useState([]); 
   const [isFinished, setIsFinished] = useState(false);
   const [finalResults, setFinalResults] = useState(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(''); // Xatolik xabari uchun
 
   useEffect(() => {
     const fetchLesson = async () => {
@@ -37,7 +39,6 @@ const LessonPage = () => {
 
   const handleNext = () => {
     const currentQuestion = lesson.sentences[currentIndex];
-    
     const newAnswerObj = {
       question: currentQuestion.original,
       correctTranslation: currentQuestion.translation || "",
@@ -55,33 +56,37 @@ const LessonPage = () => {
     }
   };
 
-  // 🔥 YANGILANGAN SERVERGA YUBORISH FUNKSIYASI
+  // 🔥 SERVERGA YUBORISH (Xatolikni ushlash bilan)
   const submitQuiz = async (allAnswers) => {
     setIsChecking(true);
+    setErrorMessage('');
     
     try {
-      console.log("Serverga yuborilmoqda...", allAnswers);
+      console.log("Yuborilmoqda:", allAnswers);
 
-      const response = await fetch('[https://ielts-telegram-app.onrender.com/check-quiz](https://ielts-telegram-app.onrender.com/check-quiz)', {
+      // Render URLingizni aniq tekshiring!
+      const response = await fetch('https://ielts-telegram-app.onrender.com/check-quiz', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify({ quizData: allAnswers })
       });
 
       if (!response.ok) {
-        throw new Error(`Server xatosi: ${response.status}`);
+        // Agar 405 yoki 500 xato kelsa:
+        throw new Error(`Server xatosi: ${response.status} (${response.statusText})`);
       }
 
       const aiResults = await response.json();
-      console.log("Server javobi:", aiResults);
 
-      // Agar server array qaytarmasa, xato beramiz
       if (!Array.isArray(aiResults)) {
-        throw new Error("AI noto'g'ri formatda javob qaytardi.");
+        throw new Error("AI javobi noto'g'ri formatda keldi.");
       }
       
+      // Natijalarni birlashtirish
       const fullHistory = allAnswers.map((item, index) => {
-        // Agar AI bu savolga javob bermagan bo'lsa (xatolik bo'lsa)
         const result = aiResults.find(r => r.id === index) || { score: 0, feedback: "Tahlil qilinmadi" };
         return {
           ...item,
@@ -91,8 +96,8 @@ const LessonPage = () => {
         };
       });
 
+      // Firebasega saqlash
       const totalScore = fullHistory.reduce((acc, curr) => acc + curr.score, 0);
-
       await addDoc(collection(db, "results"), {
         studentName: localStorage.getItem('studentName') || "Noma'lum",
         lessonTitle: lesson.title,
@@ -106,24 +111,45 @@ const LessonPage = () => {
       setIsFinished(true);
 
     } catch (error) {
-      console.error("Xatolik:", error);
-      alert(`Xatolik yuz berdi: ${error.message}. Iltimos, qaytadan urinib ko'ring.`);
-      // Xato bo'lsa bosh sahifaga otmaymiz, o'quvchi qayta "Yuborish" ni bosishi mumkin
+      console.error("Critical Error:", error);
+      setErrorMessage(`Xatolik yuz berdi: ${error.message}. Iltimos, internetni tekshirib qayta urining.`);
       setIsChecking(false);
     }
   };
 
   if (!lesson) return <div className="text-center p-10">Yuklanmoqda...</div>;
 
+  // Yuklanish jarayoni
   if (isChecking) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white p-5 text-center">
       <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mb-6"></div>
       <h2 className="text-xl font-bold text-gray-800">Natijalar tahlil qilinmoqda...</h2>
       <p className="text-gray-500 mt-2">Grammatika va so'z boyligi tekshirilyapti 📚</p>
-      <p className="text-xs text-red-400 mt-4">(Bu 10-15 soniya vaqt olishi mumkin)</p>
     </div>
   );
 
+  // Xatolik ekrani (Agar server ishlamasa)
+  if (errorMessage) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-white p-5 text-center">
+      <div className="text-red-500 text-5xl mb-4">⚠️</div>
+      <h2 className="text-xl font-bold text-red-600 mb-2">Uzr, xatolik yuz berdi!</h2>
+      <p className="text-gray-600 mb-6">{errorMessage}</p>
+      <button 
+        onClick={() => submitQuiz(quizAnswers)} // Qayta urinish
+        className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg active:scale-95 transition"
+      >
+        Qayta urinib ko'rish 🔄
+      </button>
+      <button 
+        onClick={() => navigate('/')} 
+        className="mt-4 text-gray-400 text-sm underline"
+      >
+        Bosh sahifaga qaytish
+      </button>
+    </div>
+  );
+
+  // Natijalar ekrani (Report Card)
   if (isFinished && finalResults) {
     const totalScore = finalResults.reduce((acc, curr) => acc + curr.score, 0);
     const maxScore = lesson.sentences.length * 5;
