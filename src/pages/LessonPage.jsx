@@ -7,48 +7,36 @@ const LessonPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   
-  // Dars ma'lumotlari
   const [lesson, setLesson] = useState(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState('');
   
-  // Imtihon jarayoni holatlari
+  // State-lar
   const [quizAnswers, setQuizAnswers] = useState([]); 
   const [isFinished, setIsFinished] = useState(false);
   const [finalResults, setFinalResults] = useState(null);
   const [isChecking, setIsChecking] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // 1. Darsni yuklash
   useEffect(() => {
     const fetchLesson = async () => {
       try {
         const docRef = doc(db, "assignments", id);
         const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-            setLesson(docSnap.data());
-        } else {
-            alert("Dars topilmadi");
-            navigate('/');
-        }
+        if (docSnap.exists()) setLesson(docSnap.data());
+        else navigate('/');
       } catch (error) { console.error(error); }
     };
     fetchLesson();
   }, [id, navigate]);
 
-  // Audio o'qish
   const handleSpeak = (text) => {
-    // Agar Inglizcha -> O'zbekcha bo'lsa, inglizcha o'qiymiz
-    // Agar O'zbekcha -> Inglizcha bo'lsa, o'zbekcha (yoki inglizcha) o'qitish mumkin, 
-    // lekin odatda savol qaysi tilda bo'lsa o'sha tilda o'qiladi.
     const utterance = new SpeechSynthesisUtterance(text);
-    // Tilni aniqlash (oddiy logika)
     utterance.lang = /[a-zA-Z]/.test(text) ? 'en-GB' : 'uz-UZ'; 
     utterance.rate = 0.85;
     window.speechSynthesis.speak(utterance);
   };
 
-  // Keyingi savolga o'tish
   const handleNext = () => {
     const currentQuestion = lesson.sentences[currentIndex];
     const newAnswerObj = {
@@ -68,23 +56,20 @@ const LessonPage = () => {
     }
   };
 
-  // 🔥 2. SERVERGA YUBORISH
+  // 🔥 TUZATILGAN FUNKSIYA
   const submitQuiz = async (allAnswers) => {
     setIsChecking(true);
     setErrorMessage('');
     
     try {
-      console.log("Yuborilmoqda...", allAnswers);
+      console.log("Serverga yuborilmoqda...");
 
       const response = await fetch('https://ielts-telegram-app.onrender.com/check-quiz', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
             quizData: allAnswers,
-            direction: lesson.direction || 'en-uz' // 🔥 MUHIM: Yo'nalishni yuborish
+            direction: lesson.direction || 'en-uz'
         })
       });
 
@@ -98,7 +83,6 @@ const LessonPage = () => {
         throw new Error("AI javobi noto'g'ri formatda.");
       }
       
-      // Natijalarni birlashtirish
       const fullHistory = allAnswers.map((item, index) => {
         const result = aiResults.find(r => r.id === index) || { score: 0, feedback: "Tahlil qilinmadi" };
         return {
@@ -109,9 +93,9 @@ const LessonPage = () => {
         };
       });
 
-      // Firebasega saqlash
       const totalScore = fullHistory.reduce((acc, curr) => acc + curr.score, 0);
       
+      // Firebasega saqlash
       await addDoc(collection(db, "results"), {
         studentName: localStorage.getItem('studentName') || "Noma'lum",
         lessonTitle: lesson.title,
@@ -122,34 +106,38 @@ const LessonPage = () => {
         date: serverTimestamp()
       });
 
+      // Muvaffaqiyatli yakunlash
       setFinalResults(fullHistory);
       setIsFinished(true);
 
     } catch (error) {
-      console.error("Critical Error:", error);
-      setErrorMessage(`Xatolik yuz berdi: ${error.message}. Qayta urinib ko'ring.`);
+      console.error("Xatolik:", error);
+      setErrorMessage(`Xatolik: ${error.message}. Lekin natijalar saqlangan bo'lishi mumkin.`);
+      
+      // Agar Firebasega saqlangan bo'lsa-yu, AI dan javob kelmasa, baribir natijani ko'rsatishga harakat qilamiz
+      setIsFinished(true); 
+      setFinalResults(allAnswers.map(a => ({...a, score: 0, feedback: "AI ulanmadi, lekin javobingiz qabul qilindi."})));
+    } finally {
+      // 🔥 MUHIM: Nima bo'lishidan qat'iy nazar aylanayotgan g'ildirakni to'xtatish
       setIsChecking(false);
     }
   };
 
   if (!lesson) return <div className="text-center p-10">Yuklanmoqda...</div>;
 
-  // Yuklanish ekrani
+  // 1. Agar tekshirayotgan bo'lsa
   if (isChecking) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white p-5 text-center">
       <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mb-6"></div>
       <h2 className="text-xl font-bold text-gray-800">Tekshirilmoqda...</h2>
-      <p className="text-gray-500 mt-2">
-        {lesson.direction === 'uz-en' ? "Inglizcha Grammatikangiz" : "Tarjima ma'nosi"} tahlil qilinmoqda 🇬🇧🇺🇿
-      </p>
+      <p className="text-gray-500 mt-2">Natijalar tahlil qilinmoqda ⏳</p>
     </div>
   );
 
-  // Xatolik ekrani
-  if (errorMessage) return (
+  // 2. Agar xatolik bo'lsa va hali tugamagan bo'lsa
+  if (errorMessage && !isFinished) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white p-5 text-center">
       <div className="text-red-500 text-5xl mb-4">⚠️</div>
-      <h2 className="text-xl font-bold text-red-600 mb-2">Xatolik!</h2>
       <p className="text-gray-600 mb-6">{errorMessage}</p>
       <button onClick={() => submitQuiz(quizAnswers)} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold">
         Qayta urinish 🔄
@@ -157,7 +145,7 @@ const LessonPage = () => {
     </div>
   );
 
-  // Natijalar (Report Card)
+  // 3. Natijalar (Report Card)
   if (isFinished && finalResults) {
     const totalScore = finalResults.reduce((acc, curr) => acc + curr.score, 0);
     const maxScore = lesson.sentences.length * 5;
@@ -205,11 +193,11 @@ const LessonPage = () => {
     );
   }
 
+  // 4. Savol Berish Jarayoni
   const progress = ((currentIndex + 1) / lesson.sentences.length) * 100;
 
   return (
     <div className="min-h-screen bg-[#f4f4f5] flex flex-col pb-10">
-      {/* Header */}
       <div className="bg-white p-4 sticky top-0 z-10 shadow-sm border-b border-gray-200">
         <div className="flex justify-between items-center mb-3">
           <button onClick={() => navigate('/')} className="text-[#2481cc] font-semibold text-sm">← Chiqish</button>
@@ -221,7 +209,6 @@ const LessonPage = () => {
       </div>
 
       <div className="flex-1 p-5 max-w-lg mx-auto w-full flex flex-col gap-6">
-        {/* Savol */}
         <div className="bg-white p-5 rounded-2xl rounded-tl-none shadow-sm border border-blue-50 relative mt-2">
           <div className="flex justify-between items-start gap-3">
             <div className="flex-1">
@@ -240,7 +227,6 @@ const LessonPage = () => {
           <div className="absolute -left-2 top-0 w-0 h-0 border-t-[10px] border-t-white border-l-[10px] border-l-transparent"></div>
         </div>
 
-        {/* Javob Input */}
         <div className="flex-1 flex flex-col gap-4">
            <textarea
             value={userAnswer}
