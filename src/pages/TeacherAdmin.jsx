@@ -4,10 +4,9 @@ import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, orderBy, query,
 import * as XLSX from 'xlsx';
 
 const TeacherAdmin = () => {
-  // --- STATE LAR ---
   const [activeTab, setActiveTab] = useState('create'); 
 
-  // Form States
+  // --- FORM STATES ---
   const [editingId, setEditingId] = useState(null); 
   const [title, setTitle] = useState('');
   const [assignmentType, setAssignmentType] = useState('translation');
@@ -15,7 +14,6 @@ const TeacherAdmin = () => {
   const [direction, setDirection] = useState('en-uz');
   const [targetGroup, setTargetGroup] = useState('all');
   
-  // Specific inputs
   const [imageUrl, setImageUrl] = useState('');
   const [essayPrompt, setEssayPrompt] = useState('');
   const [matchingPairs, setMatchingPairs] = useState([{ textA: '', textB: '' }]);
@@ -26,20 +24,19 @@ const TeacherAdmin = () => {
   const [bulkText, setBulkText] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Data States
+  // --- DATA STATES ---
   const [groups, setGroups] = useState([]);
   const [students, setStudents] = useState([]);
   const [assignments, setAssignments] = useState([]); 
   const [results, setResults] = useState([]);
   const [selectedResult, setSelectedResult] = useState(null);
 
-  // New Student Inputs
+  // --- NEW STUDENT STATES ---
   const [newGroupName, setNewGroupName] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentGroup, setNewStudentGroup] = useState('');
   const [newStudentPin, setNewStudentPin] = useState('');
 
-  // --- USE EFFECT ---
   useEffect(() => { 
     fetchGroups();
     fetchStudents();
@@ -47,45 +44,18 @@ const TeacherAdmin = () => {
     fetchResults();
   }, []);
 
-  // --- FETCHING ---
-  const fetchGroups = async () => {
-    try {
-        const q = query(collection(db, "groups"), orderBy("createdAt", "desc"));
-        const snap = await getDocs(q);
-        setGroups(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (e) { console.error(e); }
-  };
-  const fetchStudents = async () => {
-    try {
-        const q = query(collection(db, "users"), orderBy("name", "asc"));
-        const snap = await getDocs(q);
-        setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (e) { console.error(e); }
-  };
-  const fetchAssignments = async () => {
-    try {
-        const q = query(collection(db, "assignments"), orderBy("createdAt", "desc"));
-        const snap = await getDocs(q);
-        setAssignments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (e) { console.error(e); }
-  };
-  const fetchResults = async () => {
-    try {
-        const q = query(collection(db, "results"), orderBy("date", "desc"));
-        const snap = await getDocs(q);
-        setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (e) { console.error(e); }
-  };
+  // --- FETCHERS ---
+  const fetchGroups = async () => { try { const q = query(collection(db, "groups"), orderBy("createdAt", "desc")); const snap = await getDocs(q); setGroups(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
+  const fetchStudents = async () => { try { const q = query(collection(db, "users"), orderBy("name", "asc")); const snap = await getDocs(q); setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
+  const fetchAssignments = async () => { try { const q = query(collection(db, "assignments"), orderBy("createdAt", "desc")); const snap = await getDocs(q); setAssignments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
+  const fetchResults = async () => { try { const q = query(collection(db, "results"), orderBy("date", "desc")); const snap = await getDocs(q); setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
 
-  // --- SAVE LESSON ---
+  // --- ACTIONS ---
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
     setLoading(true);
 
-    let lessonData = {
-        title, assignmentType, direction, targetGroup,
-        updatedAt: serverTimestamp()
-    };
+    let lessonData = { title, assignmentType, direction, targetGroup, updatedAt: serverTimestamp() };
     if (!editingId) lessonData.createdAt = serverTimestamp(); 
 
     if (assignmentType === 'translation') lessonData.sentences = sentences;
@@ -114,19 +84,14 @@ const TeacherAdmin = () => {
   };
 
   const handleEdit = (lesson) => {
-    setEditingId(lesson.id);
-    setTitle(lesson.title);
-    setAssignmentType(lesson.assignmentType);
-    setDirection(lesson.direction || 'en-uz');
-    setTargetGroup(lesson.targetGroup || 'all');
-    
+    setEditingId(lesson.id); setTitle(lesson.title); setAssignmentType(lesson.assignmentType);
+    setDirection(lesson.direction || 'en-uz'); setTargetGroup(lesson.targetGroup || 'all');
     if (lesson.sentences) setSentences(lesson.sentences);
     if (lesson.essayPrompt) setEssayPrompt(lesson.essayPrompt);
     if (lesson.imageUrl) setImageUrl(lesson.imageUrl);
     if (lesson.gapFillText) setGapFillText(lesson.gapFillText);
     if (lesson.matchingPairs) setMatchingPairs(lesson.matchingPairs);
     if (lesson.correctChoices) setCorrectChoices(lesson.correctChoices);
-
     setActiveTab('create'); 
   };
 
@@ -136,25 +101,10 @@ const TeacherAdmin = () => {
     setCorrectChoices('');
   };
 
-  const deleteItem = async (col, id, refresh) => {
-    if(window.confirm("Rostdan ham o'chirasizmi?")) {
-        await deleteDoc(doc(db, col, id));
-        refresh();
-    }
-  };
-
-  const addGroup = async () => {
-    if (!newGroupName.trim()) return;
-    await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() });
-    setNewGroupName(''); fetchGroups();
-  };
+  const deleteItem = async (col, id, refresh) => { if(window.confirm("Rostdan ham o'chirasizmi?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
+  const addGroup = async () => { if (!newGroupName.trim()) return; await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() }); setNewGroupName(''); fetchGroups(); };
+  const addStudent = async () => { if (!newStudentName || !newStudentPin) return alert("Xato"); await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() }); setNewStudentName(''); setNewStudentPin(''); fetchStudents(); };
   
-  const addStudent = async () => {
-    if (!newStudentName || !newStudentPin) return alert("Xato: Ma'lumot yetarli emas");
-    await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() });
-    setNewStudentName(''); setNewStudentPin(''); fetchStudents();
-  };
-
   const processBulkText = () => {
     if (!bulkText.trim()) return;
     const lines = bulkText.split('\n');
@@ -176,15 +126,18 @@ const TeacherAdmin = () => {
     XLSX.writeFile(wb, "Natijalar.xlsx");
   };
 
-  // 🔥 YANGI LAYOUT (Siqilib qolishni tuzatadi)
+  // 🔥 YANGILANGAN LAYOUT (100% EKRAN)
   return (
-    <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
+    <div className="flex w-screen h-screen bg-gray-100 font-sans overflow-hidden">
       
-      {/* 🖥️ SIDEBAR (Chap tomon - Fixed Width) */}
-      <div className="w-64 bg-slate-900 text-white flex-none flex flex-col p-4 shadow-xl z-20">
-        <h1 className="text-2xl font-bold mb-8 text-center text-blue-400">Admin Panel</h1>
+      {/* SIDEBAR - Chap tomon (o'zgarmas kenglik) */}
+      <aside className="w-64 bg-slate-900 text-white flex-shrink-0 flex flex-col shadow-xl z-20 h-full">
+        <div className="p-6">
+            <h1 className="text-2xl font-bold text-center text-blue-400">Admin Panel</h1>
+            <div className="text-xs text-slate-500 text-center mt-1">v2.3 Fullscreen</div>
+        </div>
         
-        <nav className="space-y-2 flex-1">
+        <nav className="space-y-2 flex-1 px-4 overflow-y-auto">
             <button onClick={() => { setActiveTab('create'); resetForm(); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'create' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>
                 📝 Yangi Dars
             </button>
@@ -198,17 +151,16 @@ const TeacherAdmin = () => {
                 📈 Natijalar
             </button>
         </nav>
-        <div className="text-xs text-slate-500 text-center">v2.2 Stable</div>
-      </div>
+      </aside>
 
-      {/* 🖥️ MAIN CONTENT (O'ng tomon - Avtomatik kengayadi) */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden relative">
-        <main className="flex-1 overflow-y-auto p-8 bg-gray-50">
+      {/* MAIN CONTENT - O'ng tomon (Qolgan barcha joyni egallaydi) */}
+      <main className="flex-1 h-full overflow-hidden flex flex-col bg-gray-50 relative">
+        <div className="flex-1 overflow-y-auto p-8 w-full">
             
-            {/* --- 1. CREATE / EDIT LESSON --- */}
+            {/* 1. CREATE PAGE */}
             {activeTab === 'create' && (
                 <div className="bg-white p-8 rounded-3xl shadow-sm max-w-5xl mx-auto border border-gray-200">
-                    <div className="flex justify-between items-center mb-6">
+                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-2xl font-bold text-slate-800">{editingId ? "Darsni Tahrirlash ✏️" : "Yangi Dars Yaratish ➕"}</h2>
                         {editingId && <button onClick={resetForm} className="text-red-500 text-sm underline">Bekor qilish</button>}
                     </div>
@@ -305,12 +257,12 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* --- 2. ARCHIVE --- */}
+            {/* 2. ARCHIVE PAGE */}
             {activeTab === 'archive' && (
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
                     <h2 className="text-2xl font-bold mb-6 text-slate-800">Vazifalar Arxivi</h2>
-                    <div className="overflow-auto">
-                        <table className="w-full text-left border-collapse">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[600px]">
                             <thead className="bg-gray-50 border-b">
                                 <tr>
                                     <th className="p-4 font-bold text-gray-500">Mavzu</th>
@@ -339,7 +291,7 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* --- 3. STUDENTS --- */}
+            {/* 3. STUDENTS PAGE */}
             {activeTab === 'students' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200">
@@ -387,7 +339,7 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* --- 4. RESULTS --- */}
+            {/* 4. RESULTS PAGE */}
             {activeTab === 'results' && (
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
                     <div className="flex justify-between items-center mb-6">
@@ -420,10 +372,10 @@ const TeacherAdmin = () => {
                     </div>
                 </div>
             )}
-        </main>
-      </div>
+        </div>
+      </main>
 
-      {/* MODAL */}
+      {/* MODAL (Result Details) */}
       {selectedResult && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-3xl rounded-2xl p-8 h-[85vh] overflow-y-auto shadow-2xl">
@@ -459,7 +411,6 @@ const TeacherAdmin = () => {
             </div>
         </div>
       )}
-
     </div>
   );
 };
