@@ -7,17 +7,17 @@ dotenv.config();
 
 const app = express();
 
-// 🔥 1. CORS MUAMMOSINI HAL QILISH (Hamma joyga ruxsat)
+// 1. Xavfsizlik va Sozlamalar
 app.use(cors({
-  origin: '*', 
+  origin: '*', // Hamma joydan kirishga ruxsat (Telegram uchun)
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type']
 }));
 
-// Payload hajmini oshirish (Katta testlar uchun)
+// Katta ma'lumotlar uchun limitni oshiramiz
 app.use(express.json({ limit: '50mb' }));
 
-// Loglarni ko'rish (Render Logs da chiqadi)
+// Har bir so'rovni log qilish (Debug uchun)
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
@@ -27,23 +27,31 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY, 
 });
 
-// Server tirikligini tekshirish
-app.get('/', (req, res) => res.send('IELTS AI Server (Quiz Mode) Active! ✅'));
+app.get('/', (req, res) => res.send('IELTS Multi-Language Server Active! ✅'));
 
-// 🔥 2. ASOSIY TEKSHIRISH ROUTE-I
+// 🔥 ASOSIY TEKSHIRISH ROUTE-I
 app.post('/check-quiz', async (req, res) => {
-  const { quizData } = req.body;
+  const { quizData, direction } = req.body; // direction: 'en-uz' yoki 'uz-en'
 
-  // Ma'lumot kelganini tekshirish
   if (!quizData || !Array.isArray(quizData)) {
     console.error("XATO: quizData noto'g'ri formatda");
     return res.status(400).json({ error: "Ma'lumotlar noto'g'ri formatda" });
   }
 
-  console.log(`--> ${quizData.length} ta savol tekshirishga keldi.`);
+  console.log(`--> ${quizData.length} ta savol tekshirilyapti. Yo'nalish: ${direction}`);
+
+  // MANTIQNI ANIQLASH
+  const isUzToEn = direction === 'uz-en';
+  
+  // Promptni dinamik o'zgartiramiz
+  const logicInstruction = isUzToEn
+    ? `O'quvchi O'zbekchadan INGLIZ TILIga tarjima qilyapti.
+       TEKSHIRISH: Ingliz tili Grammatikasini (Tenses, Articles, Prepositions, Word Order) juda qattiq tekshir.
+       Agar grammatik xato bo'lsa (masalan: "I go home" o'rniga "I going home") ballni pasaytir.`
+    : `O'quvchi Inglizchadan O'ZBEK TILIga tarjima qilyapti.
+       TEKSHIRISH: Ma'no va uslubni tekshir. Grammatika ikkinchi darajali, asosiysi ma'no to'g'ri yetkazilganmi?`;
 
   try {
-    // AI uchun ma'lumotni tayyorlash
     const quizText = JSON.stringify(quizData.map((item, index) => ({
       id: index,
       savol: item.question,
@@ -52,25 +60,24 @@ app.post('/check-quiz', async (req, res) => {
     })));
 
     const prompt = `
-      Sen qattiqqo'l IELTS Examiner'san. Quyidagi o'quvchi javoblarini tekshir.
+      Sen professional IELTS Examiner va Tilshunosan.
       
-      INPUT:
+      Vazifa:
+      ${logicInstruction}
+
+      INPUT MA'LUMOTLAR:
       ${quizText}
 
       BAHOLASH MEZONI (RUBRIC):
-      - 5 ball: Ma'no to'g'ri VA Grammatika/Vocabulary xatosiz.
-      - 4 ball: Ma'no to'g'ri, lekin kichik grammatik xato (artikl, spelling).
-      - 3 ball: Jiddiy grammatik xato (zamonlar, noto'g'ri fe'l) yoki so'z noto'g'ri tanlangan.
-      - 1-2 ball: Ma'no noto'g'ri yoki tarjima yo'q.
+      - 5 ball: Mukammal. Ma'no va Grammatika to'g'ri.
+      - 4 ball: Yaxshi. Ma'no to'g'ri, kichik xato (spelling, artikl).
+      - 3 ball: O'rtacha. Jiddiy grammatik xato yoki noto'g'ri so'z tanlash.
+      - 1-2 ball: Yomon. Ma'no noto'g'ri.
 
-      MUHIM: 
-      - Grammatikaga qattiq qara. "I go now" o'rniga "I going now" desa jazolab past ball qo'y.
-      - Izohda xatoni aniq ko'rsat.
-
-      JAVOB FORMATI (JSON bo'lishi SHART):
+      JAVOB FORMATI (Faqat JSON):
       {
         "results": [
-          { "id": 0, "score": 0, "feedback": "...", "correction": "..." }
+          { "id": 0, "score": 0, "feedback": "Xatoni tushuntir...", "correction": "To'g'ri variant..." }
         ]
       }
     `;
@@ -82,7 +89,7 @@ app.post('/check-quiz', async (req, res) => {
       temperature: 0.2,
     });
 
-    // JSONni tozalash va Parse qilish
+    // JSONni tozalash (AI ba'zan markdown qo'shib yuboradi)
     let rawContent = completion.choices[0].message.content;
     rawContent = rawContent.replace(/```json/g, "").replace(/```/g, "").trim();
     
