@@ -7,41 +7,73 @@ const TeacherAdmin = () => {
   const [title, setTitle] = useState('');
   const [sentences, setSentences] = useState([{ original: '', translation: '' }]);
   const [direction, setDirection] = useState('en-uz');
+  
+  // 🔥 GURUH BOSHQARUVI
+  const [groups, setGroups] = useState([]); 
+  const [newGroupName, setNewGroupName] = useState('');
+
+  // Bulk Mode
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
-  
-  const [results, setResults] = useState([]);
-  const [filteredResults, setFilteredResults] = useState([]); // 🔥 Filtrlangan natijalar
-  const [selectedGroup, setSelectedGroup] = useState('all'); // Tanlangan guruh
-  const [uniqueGroups, setUniqueGroups] = useState([]); // Mavjud guruhlar ro'yxati
 
+  // Natijalar
+  const [results, setResults] = useState([]);
+  const [filteredResults, setFilteredResults] = useState([]);
+  const [selectedGroupFilter, setSelectedGroupFilter] = useState('all');
+  
   const [loading, setLoading] = useState(false);
   const [selectedResult, setSelectedResult] = useState(null);
 
-  useEffect(() => { fetchResults(); }, []);
+  useEffect(() => { 
+    fetchResults(); 
+    fetchGroups(); // Guruhlarni yuklash
+  }, []);
 
-  // Natijalarni yuklash va Guruhlar ro'yxatini shakllantirish
+  // 1. GURUHLARNI YUKLASH
+  const fetchGroups = async () => {
+    const q = query(collection(db, "groups"), orderBy("createdAt", "desc"));
+    const snap = await getDocs(q);
+    setGroups(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  };
+
+  // 2. YANGI GURUH QO'SHISH
+  const addGroup = async () => {
+    if (!newGroupName.trim()) return alert("Guruh nomini yozing!");
+    try {
+      await addDoc(collection(db, "groups"), { 
+        name: newGroupName.trim(), 
+        createdAt: serverTimestamp() 
+      });
+      setNewGroupName('');
+      fetchGroups();
+    } catch (e) { alert("Xato: " + e.message); }
+  };
+
+  // 3. GURUHNI O'CHIRISH
+  const deleteGroup = async (id) => {
+    if (window.confirm("Bu guruhni o'chirmoqchimisiz?")) {
+      await deleteDoc(doc(db, "groups", id));
+      fetchGroups();
+    }
+  };
+
+  // Natijalarni yuklash
   const fetchResults = async () => {
     const q = query(collection(db, "results"), orderBy("date", "desc"));
     const snap = await getDocs(q);
     const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    
     setResults(data);
     setFilteredResults(data);
-
-    // Barcha mavjud guruh nomlarini yig'ib olish (Takrorlanmas)
-    const groups = [...new Set(data.map(item => item.studentGroup || "Guruhsiz"))];
-    setUniqueGroups(groups);
   };
 
-  // 🔥 Guruh bo'yicha filtrlash
+  // Filtrlash
   useEffect(() => {
-    if (selectedGroup === 'all') {
+    if (selectedGroupFilter === 'all') {
         setFilteredResults(results);
     } else {
-        setFilteredResults(results.filter(r => (r.studentGroup || "Guruhsiz") === selectedGroup));
+        setFilteredResults(results.filter(r => (r.studentGroup || "Guruhsiz") === selectedGroupFilter));
     }
-  }, [selectedGroup, results]);
+  }, [selectedGroupFilter, results]);
 
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
@@ -54,7 +86,7 @@ const TeacherAdmin = () => {
     setLoading(false);
   };
 
-  // Bulk Import Text
+  // Bulk text processor
   const processBulkText = () => {
     if (!bulkText.trim()) return;
     const lines = bulkText.split('\n');
@@ -67,16 +99,11 @@ const TeacherAdmin = () => {
     });
     if(parsed.length) { setSentences(parsed); setIsBulkMode(false); }
   };
-
+  
   const handleDelete = async (id) => { if (window.confirm("O'chiraymi?")) { await deleteDoc(doc(db, "results", id)); fetchResults(); } };
   
   const exportToExcel = () => {
-    const data = filteredResults.map(r => ({ 
-        Guruh: r.studentGroup || "Guruhsiz",
-        Ism: r.studentName, 
-        Mavzu: r.lessonTitle, 
-        Ball: r.totalScore 
-    }));
+    const data = filteredResults.map(r => ({ Guruh: r.studentGroup, Ism: r.studentName, Mavzu: r.lessonTitle, Ball: r.totalScore }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Natijalar");
@@ -86,22 +113,44 @@ const TeacherAdmin = () => {
   return (
     <div className="min-h-screen bg-gray-50 p-6 font-sans">
       
-      {/* Statistika */}
+      {/* 🔥 1. GURUHLARNI BOSHQARISH PANEL */}
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 mb-8 max-w-6xl mx-auto">
+        <h2 className="text-xl font-bold mb-4 text-gray-800">Guruhlarni Sozlash 👥</h2>
+        <div className="flex gap-2 mb-4">
+            <input 
+                value={newGroupName} 
+                onChange={e => setNewGroupName(e.target.value)}
+                placeholder="Yangi guruh nomi (masalan: Pre-IELTS A)" 
+                className="flex-1 p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500"
+            />
+            <button onClick={addGroup} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-green-700">+ Qo'shish</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+            {groups.map(g => (
+                <div key={g.id} className="bg-blue-50 px-4 py-2 rounded-full text-blue-800 font-bold text-sm flex items-center gap-2 border border-blue-100">
+                    {g.name}
+                    <button onClick={() => deleteGroup(g.id)} className="text-red-400 hover:text-red-600 ml-1">×</button>
+                </div>
+            ))}
+            {groups.length === 0 && <span className="text-gray-400 text-sm">Hozircha guruhlar yo'q.</span>}
+        </div>
+      </div>
+
+      {/* Statistika va Filtr */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 max-w-6xl mx-auto">
         <div className="bg-blue-600 text-white p-5 rounded-2xl shadow-lg">
-          <p className="opacity-80">Jami Natijalar</p>
-          <h2 className="text-3xl font-bold">{filteredResults.length}</h2>
+            <h2 className="text-3xl font-bold">{filteredResults.length}</h2>
+            <p className="opacity-80">Jami Natijalar</p>
         </div>
         <div className="bg-white p-5 rounded-2xl shadow-lg flex items-center justify-center">
-            {/* 🔥 GURUH FILTRI */}
             <select 
-                value={selectedGroup} 
-                onChange={(e) => setSelectedGroup(e.target.value)}
+                value={selectedGroupFilter} 
+                onChange={(e) => setSelectedGroupFilter(e.target.value)}
                 className="w-full p-3 bg-gray-100 rounded-xl font-bold text-gray-700 outline-none"
             >
                 <option value="all">🌍 Barcha Guruhlar</option>
-                {uniqueGroups.map(g => (
-                    <option key={g} value={g}>👥 {g}</option>
+                {groups.map(g => (
+                    <option key={g.id} value={g.name}>👥 {g.name}</option>
                 ))}
             </select>
         </div>
@@ -115,7 +164,7 @@ const TeacherAdmin = () => {
         {/* Dars Yaratish */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-fit">
           <h2 className="text-xl font-bold mb-4">Yangi Dars 📝</h2>
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu..." className="w-full p-3 border rounded-xl mb-4 bg-gray-50 outline-none focus:ring-2 ring-blue-500"/>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu nomi..." className="w-full p-3 border rounded-xl mb-4 bg-gray-50 outline-none focus:ring-2 ring-blue-500"/>
           
           <div className="mb-4">
              <select value={direction} onChange={(e) => setDirection(e.target.value)} className="w-full p-3 border rounded-xl bg-blue-50 text-blue-800 font-bold">
@@ -149,9 +198,9 @@ const TeacherAdmin = () => {
           <button onClick={saveLesson} disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold">SAQLASH ✅</button>
         </div>
 
-        {/* Natijalar Jadvali */}
+        {/* Natijalar Ro'yxati */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-[600px] flex flex-col">
-            <h2 className="text-xl font-bold mb-4">Natijalar ({filteredResults.length})</h2>
+            <h2 className="text-xl font-bold mb-4">Natijalar</h2>
             <div className="overflow-y-auto flex-1 custom-scrollbar">
                 {filteredResults.map(r => (
                     <div key={r.id} className="flex justify-between items-center p-3 hover:bg-gray-50 border-b cursor-pointer" onClick={() => setSelectedResult(r)}>
@@ -167,21 +216,20 @@ const TeacherAdmin = () => {
                 ))}
             </div>
         </div>
-
       </div>
 
-      {/* MODAL */}
+      {/* Modal - Details */}
       {selectedResult && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-2xl rounded-2xl p-6 h-[80vh] overflow-y-auto">
                 <div className="flex justify-between mb-4">
-                    <h2 className="text-xl font-bold">{selectedResult.studentName} ({selectedResult.studentGroup})</h2>
+                    <h2 className="text-xl font-bold">{selectedResult.studentName}</h2>
                     <button onClick={() => setSelectedResult(null)} className="text-2xl text-gray-400">×</button>
                 </div>
                 {selectedResult.history?.map((item, idx) => (
                     <div key={idx} className="mb-4 p-4 border rounded-xl bg-gray-50">
                         <div className="flex justify-between">
-                             <span className="font-bold text-sm">#{idx+1} Savol: {item.question}</span>
+                             <span className="font-bold text-sm">#{idx+1} {item.question}</span>
                              <span className={`font-bold ${item.score === 5 ? 'text-green-600' : 'text-red-500'}`}>{item.score}/5</span>
                         </div>
                         <div className="grid gap-2 mt-2 text-sm">
@@ -194,7 +242,6 @@ const TeacherAdmin = () => {
             </div>
         </div>
       )}
-
     </div>
   );
 };
