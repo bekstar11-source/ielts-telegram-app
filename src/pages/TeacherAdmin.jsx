@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 const TeacherAdmin = () => {
   const [activeTab, setActiveTab] = useState('create'); 
 
-  // --- FORM STATES ---
+  // --- STATE LAR ---
   const [editingId, setEditingId] = useState(null); 
   const [title, setTitle] = useState('');
   const [assignmentType, setAssignmentType] = useState('translation');
@@ -24,14 +24,14 @@ const TeacherAdmin = () => {
   const [bulkText, setBulkText] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // --- DATA STATES ---
+  // Data States
   const [groups, setGroups] = useState([]);
   const [students, setStudents] = useState([]);
   const [assignments, setAssignments] = useState([]); 
   const [results, setResults] = useState([]);
   const [selectedResult, setSelectedResult] = useState(null);
 
-  // --- NEW STUDENT STATES ---
+  // New Student Inputs
   const [newGroupName, setNewGroupName] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentGroup, setNewStudentGroup] = useState('');
@@ -50,7 +50,7 @@ const TeacherAdmin = () => {
   const fetchAssignments = async () => { try { const q = query(collection(db, "assignments"), orderBy("createdAt", "desc")); const snap = await getDocs(q); setAssignments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
   const fetchResults = async () => { try { const q = query(collection(db, "results"), orderBy("date", "desc")); const snap = await getDocs(q); setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
 
-  // --- ACTIONS ---
+  // --- SAVE ---
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
     setLoading(true);
@@ -71,11 +71,11 @@ const TeacherAdmin = () => {
     try {
       if (editingId) {
         await updateDoc(doc(db, "assignments", editingId), lessonData);
-        alert("Dars yangilandi! 🔄");
+        alert("Yangilandi! 🔄");
         setEditingId(null);
       } else {
         await addDoc(collection(db, "assignments"), lessonData);
-        alert("Yangi dars qo'shildi! ✅");
+        alert("Saqlandi! ✅");
       }
       resetForm();
       fetchAssignments(); 
@@ -101,23 +101,11 @@ const TeacherAdmin = () => {
     setCorrectChoices('');
   };
 
-  const deleteItem = async (col, id, refresh) => { if(window.confirm("Rostdan ham o'chirasizmi?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
+  const deleteItem = async (col, id, refresh) => { if(window.confirm("O'chiraymi?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
   const addGroup = async () => { if (!newGroupName.trim()) return; await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() }); setNewGroupName(''); fetchGroups(); };
   const addStudent = async () => { if (!newStudentName || !newStudentPin) return alert("Xato"); await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() }); setNewStudentName(''); setNewStudentPin(''); fetchStudents(); };
+  const processBulkText = () => { if (!bulkText.trim()) return; const lines = bulkText.split('\n'); const parsed = []; lines.forEach(line => { if(line.includes('|')) { const [o, t] = line.split('|'); if(o.trim() && t.trim()) parsed.push({original: o.trim(), translation: t.trim()}); } }); if(parsed.length) { setSentences(parsed); setIsBulkMode(false); } };
   
-  const processBulkText = () => {
-    if (!bulkText.trim()) return;
-    const lines = bulkText.split('\n');
-    const parsed = [];
-    lines.forEach(line => {
-        if(line.includes('|')) {
-            const [o, t] = line.split('|');
-            if(o.trim() && t.trim()) parsed.push({original: o.trim(), translation: t.trim()});
-        }
-    });
-    if(parsed.length) { setSentences(parsed); setIsBulkMode(false); }
-  };
-
   const exportToExcel = () => {
     const data = results.map(r => ({ Ism: r.studentName, Guruh: r.studentGroup, Mavzu: r.lessonTitle, Ball: r.totalScore }));
     const ws = XLSX.utils.json_to_sheet(data);
@@ -126,40 +114,41 @@ const TeacherAdmin = () => {
     XLSX.writeFile(wb, "Natijalar.xlsx");
   };
 
-  // 🔥 YANGILANGAN LAYOUT (100% EKRAN)
+  // 🔥 TEMIR-BETON LAYOUT (FLEXBOX)
   return (
-    <div className="flex w-screen h-screen bg-gray-100 font-sans overflow-hidden">
+    <div className="flex w-full h-screen bg-gray-100 font-sans overflow-hidden">
       
-      {/* SIDEBAR - Chap tomon (o'zgarmas kenglik) */}
-      <aside className="w-64 bg-slate-900 text-white flex-shrink-0 flex flex-col shadow-xl z-20 h-full">
-        <div className="p-6">
+      {/* SIDEBAR: Doimiy eni 256px (w-64) */}
+      <div className="w-64 flex-shrink-0 bg-slate-900 text-white flex flex-col h-full shadow-2xl z-50">
+        <div className="p-6 border-b border-slate-800">
             <h1 className="text-2xl font-bold text-center text-blue-400">Admin Panel</h1>
-            <div className="text-xs text-slate-500 text-center mt-1">v2.3 Fullscreen</div>
+            <p className="text-xs text-center text-slate-500 mt-2">v3.0 Final Fix</p>
         </div>
         
-        <nav className="space-y-2 flex-1 px-4 overflow-y-auto">
-            <button onClick={() => { setActiveTab('create'); resetForm(); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'create' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+            <button onClick={() => { setActiveTab('create'); resetForm(); }} className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === 'create' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
                 📝 Yangi Dars
             </button>
-            <button onClick={() => setActiveTab('archive')} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'archive' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>
+            <button onClick={() => setActiveTab('archive')} className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === 'archive' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
                 📂 Arxiv
             </button>
-            <button onClick={() => setActiveTab('students')} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'students' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>
+            <button onClick={() => setActiveTab('students')} className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === 'students' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
                 👥 O'quvchilar
             </button>
-            <button onClick={() => setActiveTab('results')} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'results' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>
+            <button onClick={() => setActiveTab('results')} className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === 'results' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
                 📈 Natijalar
             </button>
         </nav>
-      </aside>
+      </div>
 
-      {/* MAIN CONTENT - O'ng tomon (Qolgan barcha joyni egallaydi) */}
-      <main className="flex-1 h-full overflow-hidden flex flex-col bg-gray-50 relative">
-        <div className="flex-1 overflow-y-auto p-8 w-full">
+      {/* MAIN CONTENT: Qolgan barcha joyni egallaydi (flex-1) */}
+      <div className="flex-1 h-full overflow-hidden bg-gray-50 flex flex-col relative">
+        {/* Scroll bo'ladigan qism */}
+        <div className="flex-1 overflow-y-auto p-8">
             
             {/* 1. CREATE PAGE */}
             {activeTab === 'create' && (
-                <div className="bg-white p-8 rounded-3xl shadow-sm max-w-5xl mx-auto border border-gray-200">
+                <div className="max-w-5xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
                      <div className="flex justify-between items-center mb-6">
                         <h2 className="text-2xl font-bold text-slate-800">{editingId ? "Darsni Tahrirlash ✏️" : "Yangi Dars Yaratish ➕"}</h2>
                         {editingId && <button onClick={resetForm} className="text-red-500 text-sm underline">Bekor qilish</button>}
@@ -259,7 +248,7 @@ const TeacherAdmin = () => {
 
             {/* 2. ARCHIVE PAGE */}
             {activeTab === 'archive' && (
-                <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
+                <div className="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
                     <h2 className="text-2xl font-bold mb-6 text-slate-800">Vazifalar Arxivi</h2>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse min-w-[600px]">
@@ -293,7 +282,7 @@ const TeacherAdmin = () => {
 
             {/* 3. STUDENTS PAGE */}
             {activeTab === 'students' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200">
                         <h3 className="font-bold text-xl mb-4">Guruhlar</h3>
                         <div className="flex gap-2 mb-4">
@@ -341,7 +330,7 @@ const TeacherAdmin = () => {
 
             {/* 4. RESULTS PAGE */}
             {activeTab === 'results' && (
-                <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
+                <div className="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-2xl font-bold text-slate-800">Natijalar</h2>
                         <button onClick={exportToExcel} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold">Excelga Yuklash</button>
@@ -373,9 +362,9 @@ const TeacherAdmin = () => {
                 </div>
             )}
         </div>
-      </main>
+      </div>
 
-      {/* MODAL (Result Details) */}
+      {/* MODAL */}
       {selectedResult && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-3xl rounded-2xl p-8 h-[85vh] overflow-y-auto shadow-2xl">
