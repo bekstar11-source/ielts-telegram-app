@@ -45,7 +45,7 @@ const LessonPage = () => {
     setIsChecking(true);
     try {
       // Bizning serverga so'rov yuboramiz
-      const response = await fetch('https://ielts-telegram-app.onrender.com', {
+      const response = await fetch('https://ielts-telegram-app.onrender.com/check-answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
