@@ -36,13 +36,28 @@ const LessonPage = () => {
     fetchLesson();
   }, [id, navigate]);
 
-  // 2. AI ga yuborish (Sizning Render Linkinriz bilan)
+  // 2. Ovozli o'qish funksiyasi (British Accent) 🇬🇧 🔊
+  const handleSpeak = () => {
+    if (!lesson) return;
+    const text = lesson.sentences[currentIndex].original;
+    
+    // Brauzerning o'zidagi nutq tizimini chaqiramiz
+    const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Sozlamalar
+    utterance.lang = 'en-GB'; // Britaniya inglizchasi
+    utterance.rate = 0.85;    // O'qish tezligi (biroz sekinroq va tushunarli)
+    utterance.pitch = 1;      // Ovoz toni
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // 3. AI ga yuborish
   const checkAnswer = async () => {
     if (!userAnswer.trim()) return;
     
     setIsChecking(true);
     try {
-      // ✅ SIZNING RENDER LINKINGIZ QO'YILDI
       const response = await fetch('https://ielts-telegram-app.onrender.com/check-answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -58,31 +73,32 @@ const LessonPage = () => {
 
       const data = await response.json();
       setAiFeedback(data);
-      setTotalScore(prev => prev + (data.score || 0)); // Ballni qo'shib boramiz
+      setTotalScore(prev => prev + (data.score || 0));
 
     } catch (error) {
       console.error("Server xatosi:", error);
-      alert("AI serveri bilan bog'lanib bo'lmadi. Internetni tekshiring yoki biroz kuting.");
+      alert("AI serveri bilan bog'lanib bo'lmadi. Internetni tekshiring.");
     } finally {
       setIsChecking(false);
     }
   };
 
-  // 3. Keyingi gapga o'tish yoki Darsni tugatish
+  // 4. Keyingi gapga o'tish yoki Darsni tugatish
   const nextSentence = async () => {
+    // Ovoz o'qiyotgan bo'lsa to'xtatish
+    window.speechSynthesis.cancel();
+
     if (currentIndex < lesson.sentences.length - 1) {
-      // Keyingi gapga o'tish
       setCurrentIndex(currentIndex + 1);
       setAiFeedback(null);
       setUserAnswer('');
     } else {
-      // Dars tugadi - Natijani saqlash
       try {
         await addDoc(collection(db, "results"), {
           studentName: localStorage.getItem('studentName') || "Noma'lum O'quvchi",
           lessonTitle: lesson.title,
           totalScore: totalScore,
-          maxScore: lesson.sentences.length * 5, // Maksimal ball
+          maxScore: lesson.sentences.length * 5,
           date: serverTimestamp()
         });
         
@@ -97,20 +113,18 @@ const LessonPage = () => {
     }
   };
 
-  // Yuklanish jarayoni
   if (!lesson) return (
     <div className="min-h-screen flex items-center justify-center bg-[#f4f4f5]">
       <div className="animate-pulse text-[#2481cc] font-bold text-lg">Dars yuklanmoqda...</div>
     </div>
   );
 
-  // Progress foizi
   const progress = ((currentIndex + 1) / lesson.sentences.length) * 100;
 
   return (
     <div className="min-h-screen bg-[#f4f4f5] flex flex-col pb-10">
       
-      {/* 1. Header & Progress Bar */}
+      {/* Header & Progress Bar */}
       <div className="bg-white p-4 sticky top-0 z-10 shadow-sm border-b border-gray-200">
         <div className="flex justify-between items-center mb-3">
           <button onClick={() => navigate('/')} className="text-[#2481cc] font-semibold text-sm flex items-center gap-1">
@@ -130,17 +144,32 @@ const LessonPage = () => {
 
       <div className="flex-1 p-5 max-w-lg mx-auto w-full flex flex-col gap-6">
         
-        {/* 2. Savol (Chat Bubble Style) */}
+        {/* Savol va Audio (Chat Bubble Style) */}
         <div className="bg-white p-5 rounded-2xl rounded-tl-none shadow-sm border border-blue-50 relative mt-2">
-          <p className="text-[10px] font-bold text-[#2481cc] uppercase mb-2 tracking-wider">Tarjima qiling</p>
-          <h2 className="text-xl font-semibold text-gray-800 leading-snug">
-            "{lesson.sentences[currentIndex].original}"
-          </h2>
-          {/* Uchburchak bezak */}
+          <div className="flex justify-between items-start gap-3">
+            <div className="flex-1">
+              <p className="text-[10px] font-bold text-[#2481cc] uppercase mb-2 tracking-wider">Tarjima qiling</p>
+              <h2 className="text-xl font-semibold text-gray-800 leading-snug">
+                "{lesson.sentences[currentIndex].original}"
+              </h2>
+            </div>
+            
+            {/* 🔊 OVOZ TUGMASI */}
+            <button 
+              onClick={handleSpeak}
+              className="bg-blue-50 text-blue-600 p-3 rounded-full hover:bg-blue-100 active:scale-90 transition-transform shadow-sm flex-shrink-0"
+              title="Eshitish (British Accent)"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+              </svg>
+            </button>
+          </div>
+
           <div className="absolute -left-2 top-0 w-0 h-0 border-t-[10px] border-t-white border-l-[10px] border-l-transparent"></div>
         </div>
 
-        {/* 3. Javob yozish maydoni */}
+        {/* Javob yozish maydoni */}
         <div className="flex-1 flex flex-col gap-4">
            <textarea
             value={userAnswer}
@@ -150,7 +179,6 @@ const LessonPage = () => {
             placeholder="O'zbekcha tarjimasini kiriting..."
           />
           
-          {/* Tekshirish Tugmasi */}
           {!aiFeedback && (
             <button 
               onClick={checkAnswer} 
@@ -162,10 +190,9 @@ const LessonPage = () => {
           )}
         </div>
 
-        {/* 4. AI Natijasi (Feedback) */}
+        {/* AI Natijasi (Feedback) */}
         {aiFeedback && (
           <div className="space-y-4 animate-in slide-in-from-bottom-5 fade-in duration-500">
-            {/* AI Javob Kartochkasi */}
             <div className={`p-5 rounded-2xl rounded-tr-none shadow-md relative ml-4 ${aiFeedback.score >= 4 ? 'bg-green-500' : 'bg-[#2481cc]'} text-white`}>
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-3xl bg-white/20 w-10 h-10 flex items-center justify-center rounded-full">
@@ -183,11 +210,9 @@ const LessonPage = () => {
                 <p className="font-medium text-white">{aiFeedback.correction}</p>
               </div>
 
-               {/* Uchburchak bezak */}
                <div className={`absolute -right-2 top-0 w-0 h-0 border-t-[10px] border-t-${aiFeedback.score >= 4 ? 'green-500' : '[#2481cc]'} border-r-[10px] border-r-transparent`}></div>
             </div>
 
-            {/* Keyingi tugmasi */}
             <button 
               onClick={nextSentence} 
               className="w-full bg-white text-gray-800 border-2 border-gray-100 py-4 rounded-xl font-bold text-lg shadow-sm active:scale-95 transition-transform hover:bg-gray-50"
