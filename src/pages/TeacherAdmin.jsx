@@ -6,143 +6,163 @@ import * as XLSX from 'xlsx';
 const TeacherAdmin = () => {
   const [title, setTitle] = useState('');
   const [sentences, setSentences] = useState([{ original: '', translation: '' }]);
-  
-  // 🔥 YANGI: Dars yo'nalishi (Default: English -> Uzbek)
-  const [direction, setDirection] = useState('en-uz'); 
-  
+  const [direction, setDirection] = useState('en-uz');
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
+  
   const [results, setResults] = useState([]);
+  const [filteredResults, setFilteredResults] = useState([]); // 🔥 Filtrlangan natijalar
+  const [selectedGroup, setSelectedGroup] = useState('all'); // Tanlangan guruh
+  const [uniqueGroups, setUniqueGroups] = useState([]); // Mavjud guruhlar ro'yxati
+
   const [loading, setLoading] = useState(false);
   const [selectedResult, setSelectedResult] = useState(null);
 
   useEffect(() => { fetchResults(); }, []);
 
+  // Natijalarni yuklash va Guruhlar ro'yxatini shakllantirish
   const fetchResults = async () => {
     const q = query(collection(db, "results"), orderBy("date", "desc"));
     const snap = await getDocs(q);
-    setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    setResults(data);
+    setFilteredResults(data);
+
+    // Barcha mavjud guruh nomlarini yig'ib olish (Takrorlanmas)
+    const groups = [...new Set(data.map(item => item.studentGroup || "Guruhsiz"))];
+    setUniqueGroups(groups);
   };
 
-  const processBulkText = () => {
-    if (!bulkText.trim()) return;
-    const lines = bulkText.split('\n');
-    const parsedSentences = [];
-    lines.forEach((line) => {
-      if (line.includes('|')) {
-        const [orig, trans] = line.split('|');
-        if (orig.trim() && trans.trim()) {
-          parsedSentences.push({ original: orig.trim(), translation: trans.trim() });
-        }
-      }
-    });
-    if (parsedSentences.length > 0) {
-      setSentences(parsedSentences);
-      setIsBulkMode(false);
+  // 🔥 Guruh bo'yicha filtrlash
+  useEffect(() => {
+    if (selectedGroup === 'all') {
+        setFilteredResults(results);
+    } else {
+        setFilteredResults(results.filter(r => (r.studentGroup || "Guruhsiz") === selectedGroup));
     }
-  };
+  }, [selectedGroup, results]);
 
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
     setLoading(true);
     try {
-      await addDoc(collection(db, "assignments"), { 
-        title, 
-        sentences, 
-        direction, // 🔥 Yo'nalishni bazaga saqlaymiz
-        createdAt: serverTimestamp() 
-      });
+      await addDoc(collection(db, "assignments"), { title, sentences, direction, createdAt: serverTimestamp() });
       alert("Dars saqlandi! ✅");
       setTitle(''); setSentences([{ original: '', translation: '' }]); setBulkText('');
     } catch (e) { alert("Xato: " + e.message); }
     setLoading(false);
   };
 
-  // ... (Delete va Excel funksiyalari o'zgarishsiz qoladi)
+  // Bulk Import Text
+  const processBulkText = () => {
+    if (!bulkText.trim()) return;
+    const lines = bulkText.split('\n');
+    const parsed = [];
+    lines.forEach(line => {
+        if(line.includes('|')) {
+            const [o, t] = line.split('|');
+            if(o.trim() && t.trim()) parsed.push({original: o.trim(), translation: t.trim()});
+        }
+    });
+    if(parsed.length) { setSentences(parsed); setIsBulkMode(false); }
+  };
+
   const handleDelete = async (id) => { if (window.confirm("O'chiraymi?")) { await deleteDoc(doc(db, "results", id)); fetchResults(); } };
-  const exportToExcel = () => { /* Eski kod */ };
+  
+  const exportToExcel = () => {
+    const data = filteredResults.map(r => ({ 
+        Guruh: r.studentGroup || "Guruhsiz",
+        Ism: r.studentName, 
+        Mavzu: r.lessonTitle, 
+        Ball: r.totalScore 
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Natijalar");
+    XLSX.writeFile(wb, "Natijalar.xlsx");
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-6 font-sans">
-      {/* ... Dashboard kartochkalari (eski kod) ... */}
       
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+      {/* Statistika */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 max-w-6xl mx-auto">
+        <div className="bg-blue-600 text-white p-5 rounded-2xl shadow-lg">
+          <p className="opacity-80">Jami Natijalar</p>
+          <h2 className="text-3xl font-bold">{filteredResults.length}</h2>
+        </div>
+        <div className="bg-white p-5 rounded-2xl shadow-lg flex items-center justify-center">
+            {/* 🔥 GURUH FILTRI */}
+            <select 
+                value={selectedGroup} 
+                onChange={(e) => setSelectedGroup(e.target.value)}
+                className="w-full p-3 bg-gray-100 rounded-xl font-bold text-gray-700 outline-none"
+            >
+                <option value="all">🌍 Barcha Guruhlar</option>
+                {uniqueGroups.map(g => (
+                    <option key={g} value={g}>👥 {g}</option>
+                ))}
+            </select>
+        </div>
+        <div className="bg-white p-5 rounded-2xl shadow-lg flex items-center justify-center">
+           <button onClick={exportToExcel} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold shadow-md hover:bg-green-700">📊 Excel</button>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
         
-        {/* Dars Yaratish Panel */}
+        {/* Dars Yaratish */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-fit">
           <h2 className="text-xl font-bold mb-4">Yangi Dars 📝</h2>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu..." className="w-full p-3 border rounded-xl mb-4 bg-gray-50 outline-none focus:ring-2 ring-blue-500"/>
           
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu nomi..." className="w-full p-3 border rounded-xl mb-4 bg-gray-50 outline-none focus:ring-2 ring-blue-500"/>
-
-          {/* 🔥 YO'NALISHNI TANLASH */}
           <div className="mb-4">
-            <label className="text-xs font-bold text-gray-400 uppercase ml-1">Tarjima yo'nalishi:</label>
-            <select 
-              value={direction} 
-              onChange={(e) => setDirection(e.target.value)}
-              className="w-full p-3 mt-1 border rounded-xl bg-blue-50 text-blue-800 font-bold outline-none"
-            >
-              <option value="en-uz">🇬🇧 English ➡️ 🇺🇿 Uzbek</option>
-              <option value="uz-en">🇺🇿 Uzbek ➡️ 🇬🇧 English</option>
-            </select>
+             <select value={direction} onChange={(e) => setDirection(e.target.value)} className="w-full p-3 border rounded-xl bg-blue-50 text-blue-800 font-bold">
+                 <option value="en-uz">🇬🇧 English {'>'} 🇺🇿 Uzbek</option>
+                 <option value="uz-en">🇺🇿 Uzbek {'>'} 🇬🇧 English</option>
+             </select>
           </div>
 
           <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-xl">
-            <button onClick={() => setIsBulkMode(false)} className={`flex-1 py-2 rounded-lg text-sm font-bold ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Birma-bir</button>
-            <button onClick={() => setIsBulkMode(true)} className={`flex-1 py-2 rounded-lg text-sm font-bold ${isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Tezkor</button>
+             <button onClick={() => setIsBulkMode(false)} className={`flex-1 py-2 font-bold rounded-lg ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Birma-bir</button>
+             <button onClick={() => setIsBulkMode(true)} className={`flex-1 py-2 font-bold rounded-lg ${isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Tezkor</button>
           </div>
 
-          {/* INPUTLAR (Label dinamik o'zgaradi) */}
-          {!isBulkMode && (
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 mb-4">
-              {sentences.map((s, i) => (
-                <div key={i} className="flex gap-2">
-                  <input 
-                    placeholder={direction === 'en-uz' ? "Inglizcha..." : "O'zbekcha..."} 
-                    className="flex-1 p-2 border rounded-lg text-sm" 
-                    value={s.original} 
-                    onChange={e => {const n=[...sentences]; n[i].original=e.target.value; setSentences(n)}} 
-                  />
-                  <input 
-                    placeholder={direction === 'en-uz' ? "O'zbekcha..." : "Inglizcha..."} 
-                    className="flex-1 p-2 border rounded-lg text-sm" 
-                    value={s.translation} 
-                    onChange={e => {const n=[...sentences]; n[i].translation=e.target.value; setSentences(n)}} 
-                  />
-                </div>
-              ))}
-              <button onClick={() => setSentences([...sentences, {original:'', translation:''}])} className="text-blue-500 text-sm font-bold">+ Qo'shish</button>
-            </div>
-          )}
-
-          {isBulkMode && (
-            <div className="mb-4">
-              <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded-lg mb-2">
-                <b>Format:</b> Savol | Javob
-              </div>
-              <textarea 
-                value={bulkText} onChange={e => setBulkText(e.target.value)} 
-                className="w-full h-32 p-3 border rounded-xl text-sm"
-                placeholder={direction === 'en-uz' ? "I go | Men boraman" : "Men boraman | I go"}
-              />
-              <button onClick={processBulkText} className="w-full bg-blue-100 text-blue-700 py-2 rounded-lg font-bold mt-2">O'zgartirish</button>
-            </div>
+          {!isBulkMode ? (
+             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 mb-4">
+               {sentences.map((s, i) => (
+                 <div key={i} className="flex gap-2">
+                    <input placeholder="Original..." className="flex-1 p-2 border rounded-lg" value={s.original} onChange={e => {const n=[...sentences]; n[i].original=e.target.value; setSentences(n)}}/>
+                    <input placeholder="Tarjima..." className="flex-1 p-2 border rounded-lg" value={s.translation} onChange={e => {const n=[...sentences]; n[i].translation=e.target.value; setSentences(n)}}/>
+                 </div>
+               ))}
+               <button onClick={() => setSentences([...sentences, {original:'', translation:''}])} className="text-blue-500 font-bold text-sm">+ Qo'shish</button>
+             </div>
+          ) : (
+             <div className="mb-4">
+                <textarea value={bulkText} onChange={e => setBulkText(e.target.value)} className="w-full h-32 p-3 border rounded-xl text-sm" placeholder="Savol | Javob"/>
+                <button onClick={processBulkText} className="w-full bg-blue-100 text-blue-700 py-2 rounded-lg font-bold mt-2">Formatlash</button>
+             </div>
           )}
 
           <button onClick={saveLesson} disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold">SAQLASH ✅</button>
         </div>
 
-        {/* Natijalar Jadvali (Modal oynasi bilan birga - eski kodni qo'yishingiz mumkin) */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-[500px] overflow-hidden flex flex-col">
-            <h2 className="text-xl font-bold mb-4">Barcha Natijalar</h2>
+        {/* Natijalar Jadvali */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-[600px] flex flex-col">
+            <h2 className="text-xl font-bold mb-4">Natijalar ({filteredResults.length})</h2>
             <div className="overflow-y-auto flex-1 custom-scrollbar">
-                {results.map(r => (
+                {filteredResults.map(r => (
                     <div key={r.id} className="flex justify-between items-center p-3 hover:bg-gray-50 border-b cursor-pointer" onClick={() => setSelectedResult(r)}>
                         <div>
-                            <p className="font-bold text-gray-800">{r.studentName}</p>
-                            <p className="text-xs text-gray-400">{r.lessonTitle} ({r.totalScore})</p>
+                            <div className="flex gap-2 items-center">
+                                <p className="font-bold text-gray-800">{r.studentName}</p>
+                                <span className="bg-gray-200 text-gray-600 text-[10px] px-2 rounded-full">{r.studentGroup || "Guruhsiz"}</span>
+                            </div>
+                            <p className="text-xs text-gray-400">{r.lessonTitle} • {r.totalScore} ball</p>
                         </div>
-                        <span className="text-2xl">👁️</span>
+                        <span className="text-xl">👁️</span>
                     </div>
                 ))}
             </div>
@@ -150,21 +170,25 @@ const TeacherAdmin = () => {
 
       </div>
 
-      {/* MODAL (O'quvchi javoblarini ko'rish uchun) */}
+      {/* MODAL */}
       {selectedResult && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-2xl rounded-2xl p-6 h-[80vh] overflow-y-auto">
                 <div className="flex justify-between mb-4">
-                    <h2 className="text-xl font-bold">{selectedResult.studentName} - {selectedResult.lessonTitle}</h2>
-                    <button onClick={() => setSelectedResult(null)} className="text-2xl">×</button>
+                    <h2 className="text-xl font-bold">{selectedResult.studentName} ({selectedResult.studentGroup})</h2>
+                    <button onClick={() => setSelectedResult(null)} className="text-2xl text-gray-400">×</button>
                 </div>
                 {selectedResult.history?.map((item, idx) => (
                     <div key={idx} className="mb-4 p-4 border rounded-xl bg-gray-50">
-                        <p className="font-bold text-gray-700 text-sm">Savol: {item.question}</p>
-                        <p className="text-blue-600 font-bold my-1">Javob: {item.userAnswer}</p>
-                        <p className="text-xs text-gray-500">To'g'ri: {item.teacherTrans}</p>
-                        <p className="text-xs italic text-gray-400 mt-2">AI: {item.feedback}</p>
-                        <span className="text-xs font-bold float-right bg-white px-2 border rounded">{item.score}/5</span>
+                        <div className="flex justify-between">
+                             <span className="font-bold text-sm">#{idx+1} Savol: {item.question}</span>
+                             <span className={`font-bold ${item.score === 5 ? 'text-green-600' : 'text-red-500'}`}>{item.score}/5</span>
+                        </div>
+                        <div className="grid gap-2 mt-2 text-sm">
+                            <div className="bg-white p-2 border rounded"><span className="text-xs font-bold text-gray-400 block">O'quvchi:</span>{item.userAnswer}</div>
+                            <div className="bg-blue-50 p-2 border rounded"><span className="text-xs font-bold text-gray-400 block">Ustoz:</span>{item.teacherTrans}</div>
+                        </div>
+                        <p className="text-xs text-gray-500 italic mt-2 border-t pt-1">AI: {item.feedback}</p>
                     </div>
                 ))}
             </div>

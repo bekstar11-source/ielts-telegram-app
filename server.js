@@ -7,77 +7,62 @@ dotenv.config();
 
 const app = express();
 
-// 1. Xavfsizlik va Sozlamalar
 app.use(cors({
-  origin: '*', // Hamma joydan kirishga ruxsat (Telegram uchun)
+  origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type']
 }));
-
-// Katta ma'lumotlar uchun limitni oshiramiz
 app.use(express.json({ limit: '50mb' }));
 
-// Har bir so'rovni log qilish (Debug uchun)
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  next();
-});
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY, 
-});
+app.get('/', (req, res) => res.send('AI Server (Smart Feedback & Groups) Active! ✅'));
 
-app.get('/', (req, res) => res.send('IELTS Multi-Language Server Active! ✅'));
-
-// 🔥 ASOSIY TEKSHIRISH ROUTE-I
 app.post('/check-quiz', async (req, res) => {
-  const { quizData, direction } = req.body; // direction: 'en-uz' yoki 'uz-en'
+  const { quizData, direction } = req.body;
 
   if (!quizData || !Array.isArray(quizData)) {
-    console.error("XATO: quizData noto'g'ri formatda");
-    return res.status(400).json({ error: "Ma'lumotlar noto'g'ri formatda" });
+    return res.status(400).json({ error: "Ma'lumot xato" });
   }
 
-  console.log(`--> ${quizData.length} ta savol tekshirilyapti. Yo'nalish: ${direction}`);
-
-  // MANTIQNI ANIQLASH
+  // Mantiq: Qaysi til grammatikasini tekshirish kerak?
   const isUzToEn = direction === 'uz-en';
-  
-  // Promptni dinamik o'zgartiramiz
-  const logicInstruction = isUzToEn
-    ? `O'quvchi O'zbekchadan INGLIZ TILIga tarjima qilyapti.
-       TEKSHIRISH: Ingliz tili Grammatikasini (Tenses, Articles, Prepositions, Word Order) juda qattiq tekshir.
-       Agar grammatik xato bo'lsa (masalan: "I go home" o'rniga "I going home") ballni pasaytir.`
-    : `O'quvchi Inglizchadan O'ZBEK TILIga tarjima qilyapti.
-       TEKSHIRISH: Ma'no va uslubni tekshir. Grammatika ikkinchi darajali, asosiysi ma'no to'g'ri yetkazilganmi?`;
+  const targetLang = isUzToEn ? "INGLIZ TILI" : "O'ZBEK TILI";
 
   try {
     const quizText = JSON.stringify(quizData.map((item, index) => ({
       id: index,
       savol: item.question,
-      ustoz_javobi: item.correctTranslation,
-      oquvchi_javobi: item.userAnswer
+      ustoz: item.correctTranslation,
+      oquvchi: item.userAnswer
     })));
 
+    // 🔥 YANGILANGAN "AQLLI VA QISQA" PROMPT
     const prompt = `
-      Sen professional IELTS Examiner va Tilshunosan.
+      Sen tajribali IELTS instruktorisan. Vazifang: O'quvchi tarjimasini tekshirish.
       
-      Vazifa:
-      ${logicInstruction}
-
-      INPUT MA'LUMOTLAR:
+      YO'NALISH: ${targetLang}ga tarjima.
+      
+      INPUT:
       ${quizText}
 
-      BAHOLASH MEZONI (RUBRIC):
-      - 5 ball: Mukammal. Ma'no va Grammatika to'g'ri.
-      - 4 ball: Yaxshi. Ma'no to'g'ri, kichik xato (spelling, artikl).
-      - 3 ball: O'rtacha. Jiddiy grammatik xato yoki noto'g'ri so'z tanlash.
-      - 1-2 ball: Yomon. Ma'no noto'g'ri.
+      BAHOLASH QOIDASI (RUBRIC):
+      - 5 ball: Ma'no to'liq to'g'ri va grammatik xatosiz.
+      - 4 ball: Ma'no to'g'ri, kichik "spelling" yoki artikl xatosi.
+      - 3 ball: Grammatik xato (zamon, predlog, so'z tartibi).
+      - 1-2 ball: Ma'no noto'g'ri.
 
-      JAVOB FORMATI (Faqat JSON):
+      FEEDBACK (IZOH) QOIDALARI:
+      1. **Juda qisqa bo'lsin** (maksimum 15-20 so'z).
+      2. Agar xato bo'lsa: "Xato: [nima xato]. To'g'ri qoida: [qisqa tushuntir]".
+      3. Agar to'g'ri bo'lsa: "Barakalla!" yoki "Mukammal".
+      4. O'zbek tilida yoz.
+      5. Misol: "Xato: 'I going' bo'lmaydi. To be fe'li tushib qoldi: 'I am going'."
+
+      JAVOB FORMATI (JSON):
       {
         "results": [
-          { "id": 0, "score": 0, "feedback": "Xatoni tushuntir...", "correction": "To'g'ri variant..." }
+          { "id": 0, "score": 0, "feedback": "Qisqa va foydali izoh...", "correction": "To'g'ri variant..." }
         ]
       }
     `;
@@ -86,27 +71,19 @@ app.post('/check-quiz', async (req, res) => {
       messages: [{ role: "system", content: prompt }],
       model: "gpt-4o-mini",
       response_format: { type: "json_object" },
-      temperature: 0.2,
+      temperature: 0.2, // Aniq javob uchun
     });
 
-    // JSONni tozalash (AI ba'zan markdown qo'shib yuboradi)
-    let rawContent = completion.choices[0].message.content;
-    rawContent = rawContent.replace(/```json/g, "").replace(/```/g, "").trim();
-    
+    let rawContent = completion.choices[0].message.content.replace(/```json/g, "").replace(/```/g, "").trim();
     const parsedData = JSON.parse(rawContent);
 
-    if (!parsedData.results) {
-      throw new Error("AI noto'g'ri format qaytardi");
-    }
-
-    console.log("--> Muvaffaqiyatli tekshirildi ✅");
     res.json(parsedData.results);
 
   } catch (error) {
-    console.error("SERVER XATOSI:", error);
-    res.status(500).json({ error: "Serverda ichki xatolik: " + error.message });
+    console.error("AI Error:", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server ${PORT}-portda ishlayapti`));
+app.listen(PORT, () => console.log(`🚀 Server ${PORT} da ishlayapti`));
