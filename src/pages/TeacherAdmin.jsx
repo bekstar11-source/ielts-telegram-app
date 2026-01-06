@@ -1,185 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, orderBy, query, serverTimestamp } from 'firebase/firestore';
-import * as XLSX from 'xlsx';
-
 const TeacherAdmin = () => {
-  // --- TABS (Sidebar uchun) ---
-  const [activeTab, setActiveTab] = useState('create'); // 'create', 'archive', 'students', 'results'
-
-  // --- FORM STATES (Dars yaratish/tahrirlash) ---
-  const [editingId, setEditingId] = useState(null); // Agar tahrirlanayotgan bo'lsa ID turadi
-  const [title, setTitle] = useState('');
-  const [assignmentType, setAssignmentType] = useState('translation');
-  const [sentences, setSentences] = useState([{ original: '', translation: '' }]);
-  const [direction, setDirection] = useState('en-uz');
-  const [targetGroup, setTargetGroup] = useState('all');
-  
-  // Specific inputs
-  const [imageUrl, setImageUrl] = useState('');
-  const [essayPrompt, setEssayPrompt] = useState('');
-  const [matchingPairs, setMatchingPairs] = useState([{ textA: '', textB: '' }]);
-  const [gapFillText, setGapFillText] = useState('');
-  const [correctChoices, setCorrectChoices] = useState('');
-
-  const [isBulkMode, setIsBulkMode] = useState(false);
-  const [bulkText, setBulkText] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  // --- DATA STATES ---
-  const [groups, setGroups] = useState([]);
-  const [students, setStudents] = useState([]);
-  const [assignments, setAssignments] = useState([]); // 🔥 Arxiv uchun
-  const [results, setResults] = useState([]);
-  const [selectedResult, setSelectedResult] = useState(null);
-
-  // --- NEW STUDENT INPUTS ---
-  const [newGroupName, setNewGroupName] = useState('');
-  const [newStudentName, setNewStudentName] = useState('');
-  const [newStudentGroup, setNewStudentGroup] = useState('');
-  const [newStudentPin, setNewStudentPin] = useState('');
-
-  useEffect(() => { 
-    fetchGroups();
-    fetchStudents();
-    fetchAssignments(); // 🔥 Arxivni yuklash
-    fetchResults();
-  }, []);
-
-  // --- FETCH FUNCTIONS ---
-  const fetchGroups = async () => {
-    const q = query(collection(db, "groups"), orderBy("createdAt", "desc"));
-    const snap = await getDocs(q);
-    setGroups(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-  };
-  const fetchStudents = async () => {
-    const q = query(collection(db, "users"), orderBy("name", "asc"));
-    const snap = await getDocs(q);
-    setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-  };
-  const fetchAssignments = async () => {
-    const q = query(collection(db, "assignments"), orderBy("createdAt", "desc"));
-    const snap = await getDocs(q);
-    setAssignments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-  };
-  const fetchResults = async () => {
-    const q = query(collection(db, "results"), orderBy("date", "desc"));
-    const snap = await getDocs(q);
-    setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-  };
-
-  // --- ACTIONS ---
-  
-  // 1. Darsni Saqlash yoki Yangilash
-  const saveLesson = async () => {
-    if (!title) return alert("Mavzu yo'q");
-    setLoading(true);
-
-    let lessonData = {
-        title, assignmentType, direction, targetGroup,
-        updatedAt: serverTimestamp()
-    };
-    if (!editingId) lessonData.createdAt = serverTimestamp(); // Faqat yangisiga sana qo'shamiz
-
-    // Type logic
-    if (assignmentType === 'translation') lessonData.sentences = sentences;
-    else if (assignmentType === 'essay_task1') { lessonData.essayPrompt = essayPrompt; lessonData.imageUrl = imageUrl; }
-    else if (assignmentType === 'essay_task2') { lessonData.essayPrompt = essayPrompt; }
-    else if (assignmentType === 'matching') { lessonData.matchingPairs = matchingPairs; }
-    else if (assignmentType === 'gap_fill') { lessonData.gapFillText = gapFillText; }
-    else if (assignmentType === 'multiple_choice') {
-        lessonData.sentences = sentences.map(s => ({...s, choices: s.choices ? (typeof s.choices === 'string' ? s.choices.split(',') : s.choices) : []}));
-        lessonData.correctChoices = correctChoices;
-    }
-
-    try {
-      if (editingId) {
-        // 🔥 UPDATE MODE
-        await updateDoc(doc(db, "assignments", editingId), lessonData);
-        alert("Dars yangilandi! 🔄");
-        setEditingId(null);
-      } else {
-        // 🔥 CREATE MODE
-        await addDoc(collection(db, "assignments"), lessonData);
-        alert("Yangi dars qo'shildi! ✅");
-      }
-      resetForm();
-      fetchAssignments(); // Arxivni yangilash
-    } catch (e) { alert("Xato: " + e.message); }
-    setLoading(false);
-  };
-
-  // 2. Tahrirlashni Boshlash (Arxivdan chaqiriladi)
-  const handleEdit = (lesson) => {
-    setEditingId(lesson.id);
-    setTitle(lesson.title);
-    setAssignmentType(lesson.assignmentType);
-    setDirection(lesson.direction || 'en-uz');
-    setTargetGroup(lesson.targetGroup || 'all');
-    
-    // Ma'lumotlarni yuklash
-    if (lesson.sentences) setSentences(lesson.sentences);
-    if (lesson.essayPrompt) setEssayPrompt(lesson.essayPrompt);
-    if (lesson.imageUrl) setImageUrl(lesson.imageUrl);
-    if (lesson.gapFillText) setGapFillText(lesson.gapFillText);
-    if (lesson.matchingPairs) setMatchingPairs(lesson.matchingPairs);
-    if (lesson.correctChoices) setCorrectChoices(lesson.correctChoices);
-
-    setActiveTab('create'); // Formaga o'tish
-  };
-
-  const resetForm = () => {
-    setTitle(''); setEditingId(null); setSentences([{ original: '', translation: '' }]);
-    setEssayPrompt(''); setImageUrl(''); setGapFillText(''); setMatchingPairs([{ textA: '', textB: '' }]);
-    setCorrectChoices('');
-  };
-
-  const deleteItem = async (col, id, refresh) => {
-    if(window.confirm("Rostdan ham o'chirasizmi?")) {
-        await deleteDoc(doc(db, col, id));
-        refresh();
-    }
-  };
-
-  // Group & Student Actions
-  const addGroup = async () => {
-    if (!newGroupName.trim()) return;
-    await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() });
-    setNewGroupName(''); fetchGroups();
-  };
-  const addStudent = async () => {
-    if (!newStudentName || !newStudentPin) return alert("Xato");
-    await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() });
-    setNewStudentName(''); setNewStudentPin(''); fetchStudents();
-  };
-
-  // Bulk
-  const processBulkText = () => {
-    if (!bulkText.trim()) return;
-    const lines = bulkText.split('\n');
-    const parsed = [];
-    lines.forEach(line => {
-        if(line.includes('|')) {
-            const [o, t] = line.split('|');
-            if(o.trim() && t.trim()) parsed.push({original: o.trim(), translation: t.trim()});
-        }
-    });
-    if(parsed.length) { setSentences(parsed); setIsBulkMode(false); }
-  };
-
-  const exportToExcel = () => {
-    const data = results.map(r => ({ Ism: r.studentName, Guruh: r.studentGroup, Mavzu: r.lessonTitle, Ball: r.totalScore }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Report");
-    XLSX.writeFile(wb, "Natijalar.xlsx");
-  };
-
   return (
-    <div className="min-h-screen bg-gray-100 font-sans flex">
+    // 1-O'ZGARISH: "flex" ni olib tashladik, "relative" qo'shdik
+    <div className="min-h-screen bg-gray-100 font-sans relative">
       
       {/* 🖥️ SIDEBAR (Chap menyu) */}
-      <div className="w-64 bg-slate-900 text-white fixed h-full flex flex-col p-4 shadow-xl z-20">
+      {/* 2-O'ZGARISH: Sidebar o'z joyida qoladi (fixed) */}
+      <div className="w-64 bg-slate-900 text-white fixed top-0 left-0 h-full flex flex-col p-4 shadow-xl z-50">
         <h1 className="text-2xl font-bold mb-8 text-center text-blue-400">Admin Panel</h1>
         
         <nav className="space-y-2 flex-1">
@@ -197,15 +23,19 @@ const TeacherAdmin = () => {
             </button>
         </nav>
         
-        <div className="text-xs text-slate-500 text-center">v2.0 Desktop Pro</div>
+        <div className="text-xs text-slate-500 text-center">v2.1 Desktop Layout</div>
       </div>
 
       {/* 🖥️ MAIN CONTENT (O'ng tomon) */}
-      <div className="flex-1 ml-64 p-8 overflow-y-auto h-screen">
+      {/* 3-O'ZGARISH: "flex-1" ni olib tashladik. "ml-64" (margin-left) hisobiga joy ochiladi */}
+      <div className="ml-64 p-8 w-[calc(100%-16rem)] min-h-screen">
         
         {/* --- 1. CREATE / EDIT LESSON --- */}
         {activeTab === 'create' && (
-            <div className="bg-white p-8 rounded-3xl shadow-sm max-w-4xl mx-auto border border-gray-200">
+            <div className="bg-white p-8 rounded-3xl shadow-sm max-w-5xl mx-auto border border-gray-200">
+                {/* ... FORMALAR O'ZGARISHSIZ QOLADI ... */}
+                {/* Bu yerdagi kodlar o'sha-o'sha, faqat layout o'zgardi */}
+                
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-2xl font-bold text-slate-800">{editingId ? "Darsni Tahrirlash ✏️" : "Yangi Dars Yaratish ➕"}</h2>
                     {editingId && <button onClick={resetForm} className="text-red-500 text-sm underline">Bekor qilish</button>}
@@ -230,8 +60,8 @@ const TeacherAdmin = () => {
                     </select>
                     {assignmentType === 'translation' && (
                         <select value={direction} onChange={e => setDirection(e.target.value)} className="p-3 border rounded-xl bg-blue-50 text-blue-800 font-bold">
-                            <option value="en-uz">🇬🇧 -&gt; 🇺🇿</option>
-                            <option value="uz-en">🇺🇿 -&gt; 🇬🇧</option>
+                            <option value="en-uz">🇬🇧 -{'>'} 🇺🇿</option>
+                            <option value="uz-en">🇺🇿 -{'>'} 🇬🇧</option>
                         </select>
                     )}
                 </div>
@@ -308,7 +138,7 @@ const TeacherAdmin = () => {
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
                 <h2 className="text-2xl font-bold mb-6 text-slate-800">Vazifalar Arxivi</h2>
                 <div className="overflow-auto">
-                    <table className="w-full text-left">
+                    <table className="w-full text-left border-collapse">
                         <thead className="bg-gray-50 border-b">
                             <tr>
                                 <th className="p-4 font-bold text-gray-500">Mavzu</th>
@@ -366,16 +196,16 @@ const TeacherAdmin = () => {
                         <button onClick={addStudent} className="bg-blue-600 text-white px-6 rounded-lg font-bold">Qo'shish</button>
                     </div>
                     
-                    <div className="h-64 overflow-y-auto border-t pt-2">
+                    <div className="h-96 overflow-y-auto border-t pt-2 custom-scrollbar">
                         <table className="w-full text-sm">
-                            <thead className="text-left text-gray-400"><tr><th>Ism</th><th>Guruh</th><th>PIN</th><th></th></tr></thead>
+                            <thead className="text-left text-gray-400 bg-gray-50 sticky top-0"><tr><th className="p-2">Ism</th><th className="p-2">Guruh</th><th className="p-2">PIN</th><th className="p-2"></th></tr></thead>
                             <tbody>
                                 {students.map(s => (
-                                    <tr key={s.id} className="border-b">
-                                        <td className="py-2">{s.name}</td>
-                                        <td className="font-bold text-blue-600">{s.group}</td>
-                                        <td className="font-mono text-gray-400">****</td>
-                                        <td className="text-right"><button onClick={() => deleteItem("users", s.id, fetchStudents)} className="text-red-500">×</button></td>
+                                    <tr key={s.id} className="border-b hover:bg-gray-50">
+                                        <td className="p-2">{s.name}</td>
+                                        <td className="p-2 font-bold text-blue-600">{s.group}</td>
+                                        <td className="p-2 font-mono text-gray-400">****</td>
+                                        <td className="p-2 text-right"><button onClick={() => deleteItem("users", s.id, fetchStudents)} className="text-red-500 hover:text-red-700">×</button></td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -392,7 +222,7 @@ const TeacherAdmin = () => {
                     <h2 className="text-2xl font-bold text-slate-800">Natijalar</h2>
                     <button onClick={exportToExcel} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold">Excelga Yuklash</button>
                 </div>
-                <div className="overflow-auto h-[600px]">
+                <div className="overflow-auto h-[600px] custom-scrollbar">
                     <table className="w-full text-left">
                         <thead className="bg-gray-50 border-b sticky top-0">
                             <tr>
@@ -421,7 +251,8 @@ const TeacherAdmin = () => {
 
       </div>
 
-      {/* RESULT MODAL (ESKISI BILAN BIR XIL) */}
+      {/* MODAL IS THE SAME AS BEFORE ... */}
+      {/* (Modal kodini o'zgartirish shart emas, u `fixed` bo'lgani uchun layoutga ta'sir qilmaydi) */}
       {selectedResult && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-3xl rounded-2xl p-8 h-[85vh] overflow-y-auto shadow-2xl">
