@@ -11,13 +11,11 @@ const LessonPage = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState('');
   
-  const [aiFeedback, setAiFeedback] = useState(null);
-  const [isChecking, setIsChecking] = useState(false);
-  const [totalScore, setTotalScore] = useState(0);
-  const [showExplanation, setShowExplanation] = useState(false);
-  
-  // Javoblar tarixi
-  const [history, setHistory] = useState([]);
+  // 🔥 YANGI STATELAR
+  const [quizAnswers, setQuizAnswers] = useState([]); // O'quvchining yig'ilgan javoblari
+  const [isFinished, setIsFinished] = useState(false); // Test tugadimi?
+  const [finalResults, setFinalResults] = useState(null); // Serverdan kelgan natijalar
+  const [isChecking, setIsChecking] = useState(false); // Yuklanmoqda...
 
   useEffect(() => {
     const fetchLesson = async () => {
@@ -31,88 +29,143 @@ const LessonPage = () => {
     fetchLesson();
   }, [id, navigate]);
 
-  const handleSpeak = () => {
-    if (!lesson) return;
-    const utterance = new SpeechSynthesisUtterance(lesson.sentences[currentIndex].original);
+  const handleSpeak = (text) => {
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-GB';
     utterance.rate = 0.85;
     window.speechSynthesis.speak(utterance);
   };
 
-  const checkAnswer = async () => {
-    const text = userAnswer.trim();
-    if (!text || text.split(/\s+/).length < 2) {
-      alert("⚠️ Iltimos, to'liqroq javob yozing.");
-      return;
-    }
+  // 1. KEYINGI GAPGA O'TISH (Javobni eslab qolish)
+  const handleNext = () => {
+    const currentQuestion = lesson.sentences[currentIndex];
     
-    setIsChecking(true);
-    try {
-      // Serverga so'rov (Ustoz tarjimasi bilan birga)
-      const response = await fetch('https://ielts-telegram-app.onrender.com/check-answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          original: lesson.sentences[currentIndex].original,
-          correctTranslation: lesson.sentences[currentIndex].translation || "", // Ustoz varianti
-          userAnswer: userAnswer,
-        })
-      });
+    // Javobni saqlab qo'yamiz
+    const newAnswerObj = {
+      question: currentQuestion.original,
+      correctTranslation: currentQuestion.translation || "",
+      userAnswer: userAnswer, // Bo'sh bo'lsa ham saqlaymiz
+    };
 
-      const data = await response.json();
-      setAiFeedback(data);
-      setTotalScore(prev => prev + (data.score || 0));
+    const updatedAnswers = [...quizAnswers, newAnswerObj];
+    setQuizAnswers(updatedAnswers);
+    setUserAnswer(''); // Inputni tozalash
 
-      // Tarixga yozish
-      setHistory(prev => [...prev, {
-        question: lesson.sentences[currentIndex].original,
-        teacherTrans: lesson.sentences[currentIndex].translation,
-        userAnswer: userAnswer,
-        score: data.score,
-        feedback: data.feedback
-      }]);
-
-    } catch (error) {
-      console.error(error);
-      alert("Server bilan aloqa yo'q.");
-    } finally {
-      setIsChecking(false);
+    // Agar savollar tugamagan bo'lsa, keyingisiga o'tamiz
+    if (currentIndex < lesson.sentences.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      // Agar tugagan bo'lsa, serverga yuborish bosqichiga o'tamiz
+      submitQuiz(updatedAnswers);
     }
   };
 
-  const finishLesson = async () => {
+  // 2. SERVERGA YUBORISH VA TEKSHIRISH
+  const submitQuiz = async (allAnswers) => {
+    setIsChecking(true);
+    
     try {
+      // Serverga barcha javoblarni yuboramiz
+      const response = await fetch('https://ielts-telegram-app.onrender.com/check-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quizData: allAnswers })
+      });
+
+      const aiResults = await response.json();
+      
+      // AI natijalarini bizdagi ma'lumotlar bilan birlashtiramiz
+      const fullHistory = allAnswers.map((item, index) => ({
+        ...item,
+        score: aiResults[index]?.score || 0,
+        feedback: aiResults[index]?.feedback || "Izoh yo'q",
+        teacherTrans: item.correctTranslation // Admin panel uchun
+      }));
+
+      // Umumiy ballni hisoblash
+      const totalScore = fullHistory.reduce((acc, curr) => acc + curr.score, 0);
+
+      // Firebasega saqlash
       await addDoc(collection(db, "results"), {
         studentName: localStorage.getItem('studentName') || "Noma'lum",
         lessonTitle: lesson.title,
         totalScore: totalScore,
         maxScore: lesson.sentences.length * 5,
-        history: history, // Tarixni to'liq saqlaymiz
+        history: fullHistory,
         date: serverTimestamp()
       });
 
-      alert(`Dars tugadi! 🎉 Ballingiz: ${totalScore}`);
-      navigate('/');
-    } catch (e) {
-      alert("Natijani saqlashda xatolik.");
-      navigate('/');
-    }
-  };
+      setFinalResults(fullHistory);
+      setIsFinished(true);
 
-  const nextSentence = () => {
-    window.speechSynthesis.cancel();
-    setShowExplanation(false);
-
-    if (currentIndex < lesson.sentences.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-      setAiFeedback(null);
-      setUserAnswer('');
-    } else {
-      finishLesson();
+    } catch (error) {
+      console.error(error);
+      alert("Natijalarni olishda xatolik bo'ldi.");
+      navigate('/');
+    } finally {
+      setIsChecking(false);
     }
   };
 
   if (!lesson) return <div className="text-center p-10">Yuklanmoqda...</div>;
+
+  // 3. YUKLANISH EKRANI
+  if (isChecking) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+      <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mb-6"></div>
+      <h2 className="text-xl font-bold text-gray-800">Natijalar tahlil qilinmoqda...</h2>
+      <p className="text-gray-500">AI barcha javoblaringizni tekshiryapti 🧠</p>
+    </div>
+  );
+
+  // 4. NATIJALAR EKRANI (REPORT CARD)
+  if (isFinished && finalResults) {
+    const totalScore = finalResults.reduce((acc, curr) => acc + curr.score, 0);
+    const maxScore = lesson.sentences.length * 5;
+
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 pb-10">
+        <div className="bg-white p-6 rounded-3xl shadow-lg mb-6 text-center">
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">Imtihon Tugadi! 🎉</h1>
+          <div className="text-5xl font-extrabold text-[#2481cc] my-4">{totalScore} / {maxScore}</div>
+          <p className="text-gray-500">Sizning umumiy natijangiz</p>
+          <button onClick={() => navigate('/')} className="mt-4 bg-gray-800 text-white px-6 py-3 rounded-xl font-bold">Bosh sahifa</button>
+        </div>
+
+        <div className="space-y-4">
+          {finalResults.map((item, idx) => (
+            <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+              <div className="flex justify-between items-start mb-3">
+                <h3 className="font-bold text-gray-800 text-sm">#{idx + 1} {item.question}</h3>
+                <span className={`px-3 py-1 rounded-lg text-xs font-bold ${item.score === 5 ? 'bg-green-100 text-green-700' : item.score >= 3 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                  {item.score}/5
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-1 gap-2 text-sm">
+                <div className={`p-3 rounded-xl border ${item.score === 5 ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+                  <span className="text-[10px] uppercase font-bold opacity-60 block">Sizning javobingiz:</span>
+                  <span className="font-medium text-gray-900">{item.userAnswer || "(Javob yo'q)"}</span>
+                </div>
+                {item.score < 5 && (
+                  <div className="p-3 rounded-xl bg-blue-50 border border-blue-100">
+                    <span className="text-[10px] uppercase font-bold opacity-60 block">To'g'ri javob:</span>
+                    <span className="font-medium text-blue-900">{item.teacherTrans}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 text-xs text-gray-500 italic border-t pt-2">
+                💡 AI: {item.feedback}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // 5. SAVOL BERISH EKRANI (IMTIHON JARAYONI)
   const progress = ((currentIndex + 1) / lesson.sentences.length) * 100;
 
   return (
@@ -120,8 +173,8 @@ const LessonPage = () => {
       {/* Header */}
       <div className="bg-white p-4 sticky top-0 z-10 shadow-sm border-b border-gray-200">
         <div className="flex justify-between items-center mb-3">
-          <button onClick={() => navigate('/')} className="text-[#2481cc] font-semibold text-sm">← Chiqish</button>
-          <span className="text-xs font-bold text-gray-400 uppercase">Mashq {currentIndex + 1} / {lesson.sentences.length}</span>
+          <button onClick={() => navigate('/')} className="text-[#2481cc] font-semibold text-sm">← Bekor qilish</button>
+          <span className="text-xs font-bold text-gray-400 uppercase">Savol {currentIndex + 1} / {lesson.sentences.length}</span>
         </div>
         <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
           <div className="bg-[#2481cc] h-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
@@ -129,65 +182,40 @@ const LessonPage = () => {
       </div>
 
       <div className="flex-1 p-5 max-w-lg mx-auto w-full flex flex-col gap-6">
-        {/* Savol */}
+        {/* Savol Kartochkasi */}
         <div className="bg-white p-5 rounded-2xl rounded-tl-none shadow-sm border border-blue-50 relative mt-2">
           <div className="flex justify-between items-start gap-3">
             <div className="flex-1">
               <p className="text-[10px] font-bold text-[#2481cc] uppercase mb-2 tracking-wider">Tarjima qiling</p>
               <h2 className="text-xl font-semibold text-gray-800 leading-snug">"{lesson.sentences[currentIndex].original}"</h2>
             </div>
-            <button onClick={handleSpeak} className="bg-blue-50 text-blue-600 p-3 rounded-full hover:bg-blue-100 active:scale-90 transition-transform shadow-sm">🔊</button>
+            <button 
+              onClick={() => handleSpeak(lesson.sentences[currentIndex].original)} 
+              className="bg-blue-50 text-blue-600 p-3 rounded-full hover:bg-blue-100 active:scale-90 transition-transform shadow-sm"
+            >
+              🔊
+            </button>
           </div>
           <div className="absolute -left-2 top-0 w-0 h-0 border-t-[10px] border-t-white border-l-[10px] border-l-transparent"></div>
         </div>
 
-        {/* Input */}
+        {/* Javob yozish */}
         <div className="flex-1 flex flex-col gap-4">
            <textarea
             value={userAnswer}
             onChange={(e) => setUserAnswer(e.target.value)}
-            disabled={!!aiFeedback}
             className="w-full p-4 h-36 rounded-2xl border-none shadow-sm outline-none focus:ring-2 ring-[#2481cc]/50 transition-all bg-white text-lg resize-none placeholder-gray-300"
-            placeholder="O'zbekcha tarjimasini kiriting..."
+            placeholder="Javobingizni shu yerga yozing..."
+            autoFocus
           />
-          {!aiFeedback && (
-            <button onClick={checkAnswer} disabled={isChecking || !userAnswer.trim()} className="w-full bg-[#2481cc] text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform">
-              {isChecking ? "Tekshirilmoqda... ⏳" : "TEKSHIRISH"}
-            </button>
-          )}
+          
+          <button 
+            onClick={handleNext} 
+            className="w-full bg-[#2481cc] text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform"
+          >
+            {currentIndex < lesson.sentences.length - 1 ? "KEYINGI SAVOL →" : "YAKUNLASH VA TEKSHIRISH ✅"}
+          </button>
         </div>
-
-        {/* Feedback */}
-        {aiFeedback && (
-          <div className="space-y-4 animate-in slide-in-from-bottom-5 fade-in duration-500">
-            <div className={`p-5 rounded-2xl rounded-tr-none shadow-md relative ml-4 ${aiFeedback.score >= 4 ? 'bg-green-500' : 'bg-[#2481cc]'} text-white`}>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-3xl bg-white/20 w-10 h-10 flex items-center justify-center rounded-full">
-                  {aiFeedback.score >= 4 ? '🌟' : aiFeedback.score >= 3 ? '👍' : '🧐'}
-                </span>
-                <span className="font-bold text-xl">Baho: {aiFeedback.score}/5</span>
-              </div>
-              <div className="bg-black/10 p-3 rounded-xl border border-white/10 mb-3">
-                <p className="text-[10px] uppercase font-bold opacity-60 mb-1">To'g'ri javob:</p>
-                <p className="font-medium text-white">{aiFeedback.correction}</p>
-              </div>
-              {!showExplanation ? (
-                <button onClick={() => setShowExplanation(true)} className="w-full bg-white/20 hover:bg-white/30 text-white py-2 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2">
-                  ❓ Izoh
-                </button>
-              ) : (
-                <div className="bg-white/10 p-3 rounded-xl mt-3 animate-in fade-in">
-                  <p className="text-[10px] uppercase font-bold opacity-60 mb-1">AI Izohi:</p>
-                  <p className="text-sm font-medium leading-relaxed">{aiFeedback.feedback}</p>
-                </div>
-              )}
-               <div className={`absolute -right-2 top-0 w-0 h-0 border-t-[10px] border-t-${aiFeedback.score >= 4 ? 'green-500' : '[#2481cc]'} border-r-[10px] border-r-transparent`}></div>
-            </div>
-            <button onClick={nextSentence} className="w-full bg-white text-gray-800 border-2 border-gray-100 py-4 rounded-xl font-bold text-lg shadow-sm active:scale-95 transition-transform hover:bg-gray-50">
-              {currentIndex < lesson.sentences.length - 1 ? "KEYINGI GAP →" : "NATIJANI SAQLASH 🏁"}
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
