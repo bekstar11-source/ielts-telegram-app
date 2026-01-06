@@ -8,6 +8,10 @@ dotenv.config();
 const app = express();
 app.use(cors()); // Reactdan kelgan so'rovni qabul qilish uchun
 app.use(express.json());
+// Server ishlayotganini tekshirish uchun asosiy yo'l
+app.get('/', (req, res) => {
+  res.send('AI Server muvaffaqiyatli ishlayapti! ✅');
+});
 
 // OpenAI ni sozlash
 const openai = new OpenAI({
