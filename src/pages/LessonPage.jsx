@@ -11,7 +11,6 @@ const LessonPage = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState('');
   
-  // State-lar
   const [quizAnswers, setQuizAnswers] = useState([]); 
   const [isFinished, setIsFinished] = useState(false);
   const [finalResults, setFinalResults] = useState(null);
@@ -38,10 +37,24 @@ const LessonPage = () => {
   };
 
   const handleNext = () => {
-    const currentQuestion = lesson.sentences[currentIndex];
+    // 🔥 Ma'lumotni tayyorlash (Dars turiga qarab)
+    let currentQ = "";
+    let correctA = "";
+
+    if (lesson.assignmentType === 'translation' || lesson.assignmentType === 'matching') {
+        currentQ = lesson.sentences[currentIndex].original;
+        correctA = lesson.sentences[currentIndex].translation;
+    } else if (lesson.assignmentType === 'essay_task1' || lesson.assignmentType === 'essay_task2') {
+        currentQ = lesson.essayPrompt;
+        correctA = "AI Evaluated";
+    } else if (lesson.assignmentType === 'gap_fill') {
+        currentQ = lesson.gapFillText;
+        correctA = "Gap Fill Answer";
+    }
+
     const newAnswerObj = {
-      question: currentQuestion.original,
-      correctTranslation: currentQuestion.translation || "",
+      question: currentQ,
+      correctTranslation: correctA,
       userAnswer: userAnswer, 
     };
 
@@ -49,39 +62,34 @@ const LessonPage = () => {
     setQuizAnswers(updatedAnswers);
     setUserAnswer(''); 
 
-    if (currentIndex < lesson.sentences.length - 1) {
+    // Essay va Gap Fill faqat 1 ta savoldan iborat bo'ladi
+    const isSingleQuestion = lesson.assignmentType.includes('essay') || lesson.assignmentType === 'gap_fill';
+
+    if (!isSingleQuestion && currentIndex < lesson.sentences.length - 1) {
       setCurrentIndex(currentIndex + 1);
     } else {
       submitQuiz(updatedAnswers);
     }
   };
 
-  // 🔥 TUZATILGAN FUNKSIYA
   const submitQuiz = async (allAnswers) => {
     setIsChecking(true);
     setErrorMessage('');
     
     try {
-      console.log("Serverga yuborilmoqda...");
-
       const response = await fetch('https://ielts-telegram-app.onrender.com/check-quiz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
             quizData: allAnswers,
-            direction: lesson.direction || 'en-uz'
+            direction: lesson.direction || 'en-uz',
+            assignmentType: lesson.assignmentType // 🔥 Turi yuborilmoqda
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`Server xatosi: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`Server xatosi: ${response.status}`);
       const aiResults = await response.json();
-
-      if (!Array.isArray(aiResults)) {
-        throw new Error("AI javobi noto'g'ri formatda.");
-      }
+      if (!Array.isArray(aiResults)) throw new Error("AI formati noto'g'ri.");
       
       const fullHistory = allAnswers.map((item, index) => {
         const result = aiResults.find(r => r.id === index) || { score: 0, feedback: "Tahlil qilinmadi" };
@@ -95,67 +103,124 @@ const LessonPage = () => {
 
       const totalScore = fullHistory.reduce((acc, curr) => acc + curr.score, 0);
       
-      // Firebasega saqlash
       await addDoc(collection(db, "results"), {
         studentName: localStorage.getItem('studentName') || "Noma'lum",
+        studentGroup: localStorage.getItem('groupName') || "Guruhsiz",
         lessonTitle: lesson.title,
-        direction: lesson.direction || 'en-uz',
+        assignmentType: lesson.assignmentType,
         totalScore: totalScore,
-        maxScore: lesson.sentences.length * 5,
+        maxScore: lesson.assignmentType.includes('essay') ? 9 : (allAnswers.length * 5),
         history: fullHistory,
         date: serverTimestamp()
       });
 
-      // Muvaffaqiyatli yakunlash
       setFinalResults(fullHistory);
       setIsFinished(true);
 
     } catch (error) {
-      console.error("Xatolik:", error);
-      setErrorMessage(`Xatolik: ${error.message}. Lekin natijalar saqlangan bo'lishi mumkin.`);
-      
-      // Agar Firebasega saqlangan bo'lsa-yu, AI dan javob kelmasa, baribir natijani ko'rsatishga harakat qilamiz
-      setIsFinished(true); 
-      setFinalResults(allAnswers.map(a => ({...a, score: 0, feedback: "AI ulanmadi, lekin javobingiz qabul qilindi."})));
+      console.error(error);
+      setErrorMessage(`Xatolik: ${error.message}`);
+      setIsFinished(true); // Xato bo'lsa ham ko'rsatish
     } finally {
-      // 🔥 MUHIM: Nima bo'lishidan qat'iy nazar aylanayotgan g'ildirakni to'xtatish
       setIsChecking(false);
     }
   };
 
   if (!lesson) return <div className="text-center p-10">Yuklanmoqda...</div>;
 
-  // 1. Agar tekshirayotgan bo'lsa
+  // --- RENDER CURRENT QUESTION ---
+  const renderContent = () => {
+    // 1. WRITING TASK 1
+    if (lesson.assignmentType === 'essay_task1') {
+        return (
+            <div className="space-y-4">
+                {lesson.imageUrl && (
+                    <img src={lesson.imageUrl} alt="Task 1" className="w-full rounded-xl shadow-md border"/>
+                )}
+                <div className="bg-blue-50 p-4 rounded-xl border-l-4 border-blue-500">
+                    <h3 className="font-bold text-blue-800">Task 1 Prompt:</h3>
+                    <p className="text-sm">{lesson.essayPrompt}</p>
+                </div>
+                <textarea 
+                    className="w-full h-80 p-4 rounded-xl border focus:ring-2 ring-blue-500" 
+                    placeholder="Write your report (min 150 words)..."
+                    value={userAnswer} onChange={e => setUserAnswer(e.target.value)}
+                />
+            </div>
+        )
+    }
+    // 2. WRITING TASK 2
+    if (lesson.assignmentType === 'essay_task2') {
+        return (
+            <div className="space-y-4">
+                <div className="bg-purple-50 p-4 rounded-xl border-l-4 border-purple-500">
+                    <h3 className="font-bold text-purple-800">Task 2 Essay Question:</h3>
+                    <p className="text-sm">{lesson.essayPrompt}</p>
+                </div>
+                <textarea 
+                    className="w-full h-96 p-4 rounded-xl border focus:ring-2 ring-purple-500" 
+                    placeholder="Write your essay (min 250 words)..."
+                    value={userAnswer} onChange={e => setUserAnswer(e.target.value)}
+                />
+            </div>
+        )
+    }
+    // 3. GAP FILL
+    if (lesson.assignmentType === 'gap_fill') {
+        return (
+            <div className="space-y-4">
+                <div className="bg-white p-6 rounded-xl shadow-sm border text-lg leading-loose">
+                    {/* Oddiy ko'rinishda matnni chiqaramiz, o'quvchi to'liq javob yozadi */}
+                    {lesson.gapFillText}
+                </div>
+                <p className="text-xs text-gray-500">Matnni to'liq ko'chirib, [gap] o'rniga to'g'ri so'zni qo'yib yozing:</p>
+                <textarea 
+                    className="w-full h-40 p-4 rounded-xl border focus:ring-2 ring-blue-500" 
+                    placeholder="To'liq javob..."
+                    value={userAnswer} onChange={e => setUserAnswer(e.target.value)}
+                />
+            </div>
+        )
+    }
+
+    // 4. TRANSLATION / MATCHING
+    const q = lesson.sentences[currentIndex];
+    return (
+        <div className="space-y-4">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-50 flex justify-between items-center">
+                <h2 className="text-xl font-bold text-gray-800">"{q.original}"</h2>
+                <button onClick={() => handleSpeak(q.original)} className="text-2xl">🔊</button>
+            </div>
+            <textarea 
+                className="w-full h-40 p-4 rounded-xl border focus:ring-2 ring-blue-500"
+                placeholder={lesson.assignmentType === 'matching' ? "Mosini yozing..." : "Tarjima qiling..."}
+                value={userAnswer}
+                onChange={(e) => setUserAnswer(e.target.value)}
+            />
+        </div>
+    );
+  };
+
+  // LOADING SCREEN
   if (isChecking) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-white p-5 text-center">
       <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mb-6"></div>
-      <h2 className="text-xl font-bold text-gray-800">Tekshirilmoqda...</h2>
-      <p className="text-gray-500 mt-2">Natijalar tahlil qilinmoqda ⏳</p>
+      <h2 className="text-xl font-bold text-gray-800">IELTS Examiner Tekshiryapti...</h2>
+      <p className="text-gray-500 mt-2">Bu 10-20 soniya vaqt olishi mumkin ⏳</p>
     </div>
   );
 
-  // 2. Agar xatolik bo'lsa va hali tugamagan bo'lsa
-  if (errorMessage && !isFinished) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-white p-5 text-center">
-      <div className="text-red-500 text-5xl mb-4">⚠️</div>
-      <p className="text-gray-600 mb-6">{errorMessage}</p>
-      <button onClick={() => submitQuiz(quizAnswers)} className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold">
-        Qayta urinish 🔄
-      </button>
-    </div>
-  );
-
-  // 3. Natijalar (Report Card)
+  // RESULT SCREEN
   if (isFinished && finalResults) {
     const totalScore = finalResults.reduce((acc, curr) => acc + curr.score, 0);
-    const maxScore = lesson.sentences.length * 5;
+    const isEssay = lesson.assignmentType.includes('essay');
 
     return (
       <div className="min-h-screen bg-gray-50 p-4 pb-10">
         <div className="bg-white p-6 rounded-3xl shadow-lg mb-6 text-center">
           <h1 className="text-2xl font-bold text-gray-800 mb-2">Natija</h1>
-          <div className={`text-5xl font-extrabold my-4 ${totalScore/maxScore > 0.8 ? 'text-green-600' : 'text-blue-600'}`}>
-            {totalScore} / {maxScore}
+          <div className="text-5xl font-extrabold my-4 text-blue-600">
+            {isEssay ? totalScore : totalScore} {isEssay ? "/ 9.0" : "ball"}
           </div>
           <button onClick={() => navigate('/')} className="mt-4 bg-gray-800 text-white px-6 py-3 rounded-xl font-bold">Bosh sahifa</button>
         </div>
@@ -163,28 +228,16 @@ const LessonPage = () => {
         <div className="space-y-4">
           {finalResults.map((item, idx) => (
             <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-              <div className="flex justify-between items-start mb-3">
-                <h3 className="font-bold text-gray-800 text-sm">#{idx + 1} {item.question}</h3>
-                <span className={`px-3 py-1 rounded-lg text-xs font-bold ${item.score === 5 ? 'bg-green-100 text-green-700' : item.score >= 3 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                  {item.score}/5
-                </span>
-              </div>
+              <h3 className="font-bold text-gray-800 mb-2">Tahlil:</h3>
               
-              <div className="grid grid-cols-1 gap-2 text-sm">
-                <div className={`p-3 rounded-xl border ${item.score === 5 ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
-                  <span className="text-[10px] uppercase font-bold opacity-60 block">Javobingiz:</span>
-                  <span className="font-medium text-gray-900">{item.userAnswer || "..."}</span>
-                </div>
-                {item.score < 5 && (
-                  <div className="p-3 rounded-xl bg-blue-50 border border-blue-100">
-                    <span className="text-[10px] uppercase font-bold opacity-60 block">To'g'ri javob:</span>
-                    <span className="font-medium text-blue-900">{item.teacherTrans}</span>
-                  </div>
-                )}
+              <div className="bg-blue-50 p-3 rounded-xl text-sm mb-3 whitespace-pre-wrap">
+                  <span className="font-bold text-blue-800 block mb-1">Sizning Javobingiz:</span>
+                  {item.userAnswer}
               </div>
 
-              <div className="mt-3 text-xs text-gray-500 italic border-t pt-2">
-                🤖 <b>AI:</b> {item.feedback}
+              <div className="text-sm bg-yellow-50 p-4 rounded-xl border-l-4 border-yellow-400 whitespace-pre-wrap">
+                <span className="font-bold text-yellow-800 block mb-2">🤖 AI Examiner Feedback:</span>
+                {item.feedback}
               </div>
             </div>
           ))}
@@ -193,56 +246,25 @@ const LessonPage = () => {
     );
   }
 
-  // 4. Savol Berish Jarayoni
-  const progress = ((currentIndex + 1) / lesson.sentences.length) * 100;
-
+  // QUESTION SCREEN
   return (
     <div className="min-h-screen bg-[#f4f4f5] flex flex-col pb-10">
-      <div className="bg-white p-4 sticky top-0 z-10 shadow-sm border-b border-gray-200">
-        <div className="flex justify-between items-center mb-3">
-          <button onClick={() => navigate('/')} className="text-[#2481cc] font-semibold text-sm">← Chiqish</button>
-          <span className="text-xs font-bold text-gray-400 uppercase">Savol {currentIndex + 1} / {lesson.sentences.length}</span>
-        </div>
-        <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-          <div className="bg-[#2481cc] h-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
-        </div>
+      <div className="bg-white p-4 sticky top-0 z-10 shadow-sm border-b border-gray-200 flex justify-between items-center">
+         <button onClick={() => navigate('/')} className="text-blue-600 font-bold">← Chiqish</button>
+         <span className="font-bold text-gray-500 text-xs uppercase">{lesson.assignmentType.replace('_', ' ')}</span>
       </div>
 
       <div className="flex-1 p-5 max-w-lg mx-auto w-full flex flex-col gap-6">
-        <div className="bg-white p-5 rounded-2xl rounded-tl-none shadow-sm border border-blue-50 relative mt-2">
-          <div className="flex justify-between items-start gap-3">
-            <div className="flex-1">
-              <p className="text-[10px] font-bold text-[#2481cc] uppercase mb-2 tracking-wider">
-                {lesson.direction === 'uz-en' ? "Inglizchaga tarjima qiling" : "O'zbekchaga tarjima qiling"}
-              </p>
-              <h2 className="text-xl font-semibold text-gray-800 leading-snug">"{lesson.sentences[currentIndex].original}"</h2>
-            </div>
-            <button 
-              onClick={() => handleSpeak(lesson.sentences[currentIndex].original)} 
-              className="bg-blue-50 text-blue-600 p-3 rounded-full hover:bg-blue-100 active:scale-90 transition-transform shadow-sm"
-            >
-              🔊
-            </button>
-          </div>
-          <div className="absolute -left-2 top-0 w-0 h-0 border-t-[10px] border-t-white border-l-[10px] border-l-transparent"></div>
-        </div>
-
-        <div className="flex-1 flex flex-col gap-4">
-           <textarea
-            value={userAnswer}
-            onChange={(e) => setUserAnswer(e.target.value)}
-            className="w-full p-4 h-36 rounded-2xl border-none shadow-sm outline-none focus:ring-2 ring-[#2481cc]/50 transition-all bg-white text-lg resize-none placeholder-gray-300"
-            placeholder={lesson.direction === 'uz-en' ? "Write in English..." : "O'zbekcha yozing..."}
-            autoFocus
-          />
-          
-          <button 
+        {renderContent()}
+        
+        <button 
             onClick={handleNext} 
             className="w-full bg-[#2481cc] text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-transform"
-          >
-            {currentIndex < lesson.sentences.length - 1 ? "KEYINGI SAVOL →" : "YAKUNLASH ✅"}
-          </button>
-        </div>
+        >
+            {lesson.assignmentType.includes('essay') || lesson.assignmentType === 'gap_fill' || currentIndex >= lesson.sentences?.length - 1 
+                ? "YAKUNLASH VA TEKSHIRISH ✅" 
+                : "KEYINGI SAVOL →"}
+        </button>
       </div>
     </div>
   );

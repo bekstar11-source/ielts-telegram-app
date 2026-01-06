@@ -1,6 +1,7 @@
+// src/pages/TeacherAdmin.jsx
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 
 const TeacherAdmin = () => {
@@ -9,20 +10,28 @@ const TeacherAdmin = () => {
 
   // --- LESSON STATES ---
   const [title, setTitle] = useState('');
-  const [sentences, setSentences] = useState([{ original: '', translation: '' }]);
+  const [assignmentType, setAssignmentType] = useState('translation'); // 🔥 Default: translation
+  const [sentences, setSentences] = useState([{ original: '', translation: '' }]); // Translation
   const [direction, setDirection] = useState('en-uz');
-  const [targetGroup, setTargetGroup] = useState('all'); // 🔥 Qaysi guruhga?
+  const [targetGroup, setTargetGroup] = useState('all');
   
+  // 🔥 IELTS WRITING STATES
+  const [imageUrl, setImageUrl] = useState(''); // Task 1 uchun rasm
+  const [essayPrompt, setEssayPrompt] = useState(''); // Task 1/2 uchun prompt
+  
+  // 🔥 MATCHING & GAP FILL
+  const [matchingPairs, setMatchingPairs] = useState([{ textA: '', textB: '' }]);
+  const [gapFillText, setGapFillText] = useState(''); // Text with [gap] or __
+  const [correctChoices, setCorrectChoices] = useState(''); // Choices for Multiple Choice
+
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // --- STUDENT STATES ---
+  // --- STUDENT & GROUP STATES ---
   const [groups, setGroups] = useState([]);
   const [students, setStudents] = useState([]);
   const [newGroupName, setNewGroupName] = useState('');
-  
-  // Yangi o'quvchi qo'shish
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentGroup, setNewStudentGroup] = useState('');
   const [newStudentPin, setNewStudentPin] = useState('');
@@ -70,7 +79,7 @@ const TeacherAdmin = () => {
     await addDoc(collection(db, "users"), {
         name: newStudentName,
         group: newStudentGroup,
-        pin: newStudentPin, // 🔒 Parol
+        pin: newStudentPin,
         createdAt: serverTimestamp()
     });
     alert("O'quvchi qo'shildi! ✅");
@@ -80,14 +89,38 @@ const TeacherAdmin = () => {
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yo'q");
     setLoading(true);
+    let lessonData = {
+        title, 
+        assignmentType,
+        direction,
+        targetGroup, 
+        createdAt: serverTimestamp() 
+    };
+
+    // 🔥 Har xil turdagi darslar uchun ma'lumotlarni saqlash
+    if (assignmentType === 'translation') {
+        lessonData.sentences = sentences;
+    } else if (assignmentType === 'essay_task1') {
+        lessonData.essayPrompt = essayPrompt;
+        lessonData.imageUrl = imageUrl;
+    } else if (assignmentType === 'essay_task2') {
+        lessonData.essayPrompt = essayPrompt;
+    } else if (assignmentType === 'matching') {
+        lessonData.matchingPairs = matchingPairs;
+    } else if (assignmentType === 'gap_fill') {
+        lessonData.gapFillText = gapFillText;
+    } else if (assignmentType === 'multiple_choice') {
+        lessonData.sentences = sentences.map(s => ({...s, choices: s.choices ? s.choices.split(',').map(c => c.trim()) : []}));
+        lessonData.correctChoices = correctChoices.split(',').map(c => c.trim());
+    }
+
     try {
-      await addDoc(collection(db, "assignments"), { 
-          title, sentences, direction, 
-          targetGroup, // 🔥 Dars kim uchun?
-          createdAt: serverTimestamp() 
-      });
+      await addDoc(collection(db, "assignments"), lessonData);
       alert("Dars saqlandi! ✅");
-      setTitle(''); setSentences([{ original: '', translation: '' }]); setBulkText('');
+      // Formani tozalash
+      setTitle(''); setSentences([{ original: '', translation: '' }]); 
+      setEssayPrompt(''); setImageUrl(''); setMatchingPairs([{ textA: '', textB: '' }]);
+      setGapFillText(''); setCorrectChoices('');
     } catch (e) { alert("Xato: " + e.message); }
     setLoading(false);
   };
@@ -99,7 +132,7 @@ const TeacherAdmin = () => {
     }
   };
 
-  // Bulk process
+  // Bulk process for translation
   const processBulkText = () => {
     if (!bulkText.trim()) return;
     const lines = bulkText.split('\n');
@@ -138,40 +171,112 @@ const TeacherAdmin = () => {
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu nomi..." className="p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500"/>
                 
-                {/* 🔥 GURUH TANLASH */}
+                {/* 🔥 Dars turi */}
+                <select value={assignmentType} onChange={e => setAssignmentType(e.target.value)} className="p-3 border rounded-xl bg-purple-50 font-bold text-purple-800">
+                    <option value="translation">🇺🇿↔️🇬🇧 Tarjima</option>
+                    <option value="essay_task1">📊 Writing Task 1 (Diagramma)</option>
+                    <option value="essay_task2">✍️ Writing Task 2 (Essay)</option>
+                    <option value="matching">💡 Matching</option>
+                    <option value="gap_fill">📝 Gap Filling</option>
+                    <option value="multiple_choice">✅ Multiple Choice</option>
+                </select>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                {/* 🔥 Guruh tanlash */}
                 <select value={targetGroup} onChange={e => setTargetGroup(e.target.value)} className="p-3 border rounded-xl bg-yellow-50 font-bold text-yellow-800">
                     <option value="all">🌍 Barcha Guruhlar Uchun</option>
                     {groups.map(g => <option key={g.id} value={g.name}>{g.name}</option>)}
                 </select>
+                
+                {/* Tarjima yo'nalishi (faqat 'translation' uchun) */}
+                {assignmentType === 'translation' && (
+                    <select value={direction} onChange={e => setDirection(e.target.value)} className="p-3 border rounded-xl bg-blue-50 text-blue-800 font-bold">
+                        <option value="en-uz">🇬🇧 English -&gt; 🇺🇿 Uzbek</option>
+                        <option value="uz-en">🇺🇿 Uzbek -&gt; 🇬🇧 English</option>
+                    </select>
+                )}
              </div>
 
-             <div className="mb-4">
-                <select value={direction} onChange={e => setDirection(e.target.value)} className="w-full p-3 border rounded-xl bg-blue-50 text-blue-800 font-bold">
-                    <option value="en-uz">🇬🇧 English -> 🇺🇿 Uzbek</option>
-                    <option value="uz-en">🇺🇿 Uzbek -> 🇬🇧 English</option>
-                </select>
-             </div>
+             {/* --- DINAMIK INPUTLAR --- */}
 
-             {/* Gaplar Kiritish */}
-             <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-xl">
-                <button onClick={() => setIsBulkMode(false)} className={`flex-1 py-2 font-bold rounded-lg ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Birma-bir</button>
-                <button onClick={() => setIsBulkMode(true)} className={`flex-1 py-2 font-bold rounded-lg ${isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Tezkor</button>
-             </div>
-
-             {!isBulkMode ? (
-                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 mb-4 custom-scrollbar">
-                  {sentences.map((s, i) => (
-                    <div key={i} className="flex gap-2">
-                       <input placeholder="Original..." className="flex-1 p-2 border rounded-lg" value={s.original} onChange={e => {const n=[...sentences]; n[i].original=e.target.value; setSentences(n)}}/>
-                       <input placeholder="Tarjima..." className="flex-1 p-2 border rounded-lg" value={s.translation} onChange={e => {const n=[...sentences]; n[i].translation=e.target.value; setSentences(n)}}/>
+             {/* 1. Tarjima darsi */}
+             {assignmentType === 'translation' && (
+                <>
+                    <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-xl">
+                        <button onClick={() => setIsBulkMode(false)} className={`flex-1 py-2 font-bold rounded-lg ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Birma-bir</button>
+                        <button onClick={() => setIsBulkMode(true)} className={`flex-1 py-2 font-bold rounded-lg ${isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Tezkor</button>
                     </div>
-                  ))}
-                  <button onClick={() => setSentences([...sentences, {original:'', translation:''}])} className="text-blue-500 font-bold text-sm">+ Qo'shish</button>
+                    {!isBulkMode ? (
+                        <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 mb-4 custom-scrollbar">
+                        {sentences.map((s, i) => (
+                            <div key={i} className="flex gap-2">
+                            <input placeholder="Original..." className="flex-1 p-2 border rounded-lg" value={s.original} onChange={e => {const n=[...sentences]; n[i].original=e.target.value; setSentences(n)}}/>
+                            <input placeholder="Tarjima..." className="flex-1 p-2 border rounded-lg" value={s.translation} onChange={e => {const n=[...sentences]; n[i].translation=e.target.value; setSentences(n)}}/>
+                            </div>
+                        ))}
+                        <button onClick={() => setSentences([...sentences, {original:'', translation:''}])} className="text-blue-500 font-bold text-sm">+ Qo'shish</button>
+                        </div>
+                    ) : (
+                        <div className="mb-4">
+                            <textarea value={bulkText} onChange={e => setBulkText(e.target.value)} className="w-full h-32 p-3 border rounded-xl text-sm font-mono" placeholder="I go | Men boraman"/>
+                            <button onClick={processBulkText} className="w-full bg-blue-100 text-blue-700 py-2 rounded-lg font-bold mt-2">Formatlash</button>
+                        </div>
+                    )}
+                </>
+             )}
+
+             {/* 2. IELTS Writing Task 1 */}
+             {assignmentType === 'essay_task1' && (
+                <div className="mb-4 space-y-3">
+                    <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="Diagramma rasmi URL (Masalan: https://example.com/diagram.png)" className="w-full p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500"/>
+                    <textarea value={essayPrompt} onChange={e => setEssayPrompt(e.target.value)} placeholder="Task 1 promptini kiriting..." className="w-full h-36 p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500"/>
                 </div>
-             ) : (
+             )}
+
+             {/* 3. IELTS Writing Task 2 */}
+             {assignmentType === 'essay_task2' && (
                 <div className="mb-4">
-                   <textarea value={bulkText} onChange={e => setBulkText(e.target.value)} className="w-full h-32 p-3 border rounded-xl text-sm font-mono" placeholder="I go | Men boraman"/>
-                   <button onClick={processBulkText} className="w-full bg-blue-100 text-blue-700 py-2 rounded-lg font-bold mt-2">Formatlash</button>
+                    <textarea value={essayPrompt} onChange={e => setEssayPrompt(e.target.value)} placeholder="Task 2 promptini kiriting..." className="w-full h-36 p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500"/>
+                </div>
+             )}
+
+             {/* 4. Matching */}
+             {assignmentType === 'matching' && (
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 mb-4 custom-scrollbar">
+                    {matchingPairs.map((pair, i) => (
+                        <div key={i} className="flex gap-2">
+                            <input placeholder="Chap ustun (A)..." className="flex-1 p-2 border rounded-lg" value={pair.textA} onChange={e => {const n=[...matchingPairs]; n[i].textA=e.target.value; setMatchingPairs(n)}}/>
+                            <input placeholder="O'ng ustun (B)..." className="flex-1 p-2 border rounded-lg" value={pair.textB} onChange={e => {const n=[...matchingPairs]; n[i].textB=e.target.value; setMatchingPairs(n)}}/>
+                        </div>
+                    ))}
+                    <button onClick={() => setMatchingPairs([...matchingPairs, {textA:'', textB:''}])} className="text-blue-500 font-bold text-sm">+ Juftlik qo'shish</button>
+                </div>
+             )}
+
+             {/* 5. Gap Filling */}
+             {assignmentType === 'gap_fill' && (
+                <div className="mb-4">
+                    <textarea value={gapFillText} onChange={e => setGapFillText(e.target.value)} placeholder="Gap filling matnini kiriting. Bo'sh joylarni [gap] yoki ___ bilan belgilang. Masalan: The capital of [France] is Paris." className="w-full h-48 p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500"/>
+                    <p className="text-xs text-gray-500 mt-2">To'g'ri javoblarni [gap] ichiga yozing.</p>
+                </div>
+             )}
+
+             {/* 6. Multiple Choice */}
+             {assignmentType === 'multiple_choice' && (
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 mb-4 custom-scrollbar">
+                    <h4 className="font-bold text-gray-700 mb-2">Savollar va Variantlar</h4>
+                    {sentences.map((q, i) => (
+                        <div key={i} className="border p-3 rounded-lg bg-gray-50">
+                            <textarea placeholder={`Savol ${i+1}`} className="w-full p-2 mb-2 border rounded-lg" value={q.original} onChange={e => {const n=[...sentences]; n[i].original=e.target.value; setSentences(n)}}/>
+                            <input placeholder="Variantlar (vergul bilan ajrating: A, B, C, D)" className="w-full p-2 border rounded-lg" value={q.choices} onChange={e => {const n=[...sentences]; n[i].choices=e.target.value; setSentences(n)}}/>
+                        </div>
+                    ))}
+                    <button onClick={() => setSentences([...sentences, {original:'', choices:''}])} className="text-blue-500 font-bold text-sm">+ Savol qo'shish</button>
+
+                    <h4 className="font-bold text-gray-700 mb-2 mt-4">To'g'ri Javoblar</h4>
+                    <input value={correctChoices} onChange={e => setCorrectChoices(e.target.value)} placeholder="To'g'ri javoblar (vergul bilan ajrating: A,B,C...)" className="w-full p-2 border rounded-lg"/>
+                    <p className="text-xs text-gray-500 mt-1">Bu savollarning to'g'ri javoblari ketma-ketligi (birinchi savol javobi, ikkinchi savol javobi va h.k.)</p>
                 </div>
              )}
 
@@ -182,7 +287,6 @@ const TeacherAdmin = () => {
       {/* --- 2. O'QUVCHILAR BO'LIMI --- */}
       {activeTab === 'students' && (
           <div className="max-w-4xl mx-auto space-y-8">
-              
               {/* Guruh qo'shish */}
               <div className="bg-white p-6 rounded-3xl shadow-sm">
                   <h3 className="font-bold text-gray-800 mb-4">1. Guruhlar</h3>
