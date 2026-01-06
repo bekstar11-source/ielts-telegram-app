@@ -11,11 +11,10 @@ const LessonPage = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState('');
   
-  // 🔥 YANGI STATELAR
-  const [quizAnswers, setQuizAnswers] = useState([]); // O'quvchining yig'ilgan javoblari
-  const [isFinished, setIsFinished] = useState(false); // Test tugadimi?
-  const [finalResults, setFinalResults] = useState(null); // Serverdan kelgan natijalar
-  const [isChecking, setIsChecking] = useState(false); // Yuklanmoqda...
+  const [quizAnswers, setQuizAnswers] = useState([]); 
+  const [isFinished, setIsFinished] = useState(false);
+  const [finalResults, setFinalResults] = useState(null);
+  const [isChecking, setIsChecking] = useState(false);
 
   useEffect(() => {
     const fetchLesson = async () => {
@@ -36,56 +35,64 @@ const LessonPage = () => {
     window.speechSynthesis.speak(utterance);
   };
 
-  // 1. KEYINGI GAPGA O'TISH (Javobni eslab qolish)
   const handleNext = () => {
     const currentQuestion = lesson.sentences[currentIndex];
     
-    // Javobni saqlab qo'yamiz
     const newAnswerObj = {
       question: currentQuestion.original,
       correctTranslation: currentQuestion.translation || "",
-      userAnswer: userAnswer, // Bo'sh bo'lsa ham saqlaymiz
+      userAnswer: userAnswer, 
     };
 
     const updatedAnswers = [...quizAnswers, newAnswerObj];
     setQuizAnswers(updatedAnswers);
-    setUserAnswer(''); // Inputni tozalash
+    setUserAnswer(''); 
 
-    // Agar savollar tugamagan bo'lsa, keyingisiga o'tamiz
     if (currentIndex < lesson.sentences.length - 1) {
       setCurrentIndex(currentIndex + 1);
     } else {
-      // Agar tugagan bo'lsa, serverga yuborish bosqichiga o'tamiz
       submitQuiz(updatedAnswers);
     }
   };
 
-  // 2. SERVERGA YUBORISH VA TEKSHIRISH
+  // 🔥 YANGILANGAN SERVERGA YUBORISH FUNKSIYASI
   const submitQuiz = async (allAnswers) => {
     setIsChecking(true);
     
     try {
-      // Serverga barcha javoblarni yuboramiz
-      const response = await fetch('https://ielts-telegram-app.onrender.com/check-quiz', {
+      console.log("Serverga yuborilmoqda...", allAnswers);
+
+      const response = await fetch('[https://ielts-telegram-app.onrender.com/check-quiz](https://ielts-telegram-app.onrender.com/check-quiz)', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ quizData: allAnswers })
       });
 
-      const aiResults = await response.json();
-      
-      // AI natijalarini bizdagi ma'lumotlar bilan birlashtiramiz
-      const fullHistory = allAnswers.map((item, index) => ({
-        ...item,
-        score: aiResults[index]?.score || 0,
-        feedback: aiResults[index]?.feedback || "Izoh yo'q",
-        teacherTrans: item.correctTranslation // Admin panel uchun
-      }));
+      if (!response.ok) {
+        throw new Error(`Server xatosi: ${response.status}`);
+      }
 
-      // Umumiy ballni hisoblash
+      const aiResults = await response.json();
+      console.log("Server javobi:", aiResults);
+
+      // Agar server array qaytarmasa, xato beramiz
+      if (!Array.isArray(aiResults)) {
+        throw new Error("AI noto'g'ri formatda javob qaytardi.");
+      }
+      
+      const fullHistory = allAnswers.map((item, index) => {
+        // Agar AI bu savolga javob bermagan bo'lsa (xatolik bo'lsa)
+        const result = aiResults.find(r => r.id === index) || { score: 0, feedback: "Tahlil qilinmadi" };
+        return {
+          ...item,
+          score: result.score,
+          feedback: result.feedback,
+          teacherTrans: item.correctTranslation
+        };
+      });
+
       const totalScore = fullHistory.reduce((acc, curr) => acc + curr.score, 0);
 
-      // Firebasega saqlash
       await addDoc(collection(db, "results"), {
         studentName: localStorage.getItem('studentName') || "Noma'lum",
         lessonTitle: lesson.title,
@@ -99,26 +106,24 @@ const LessonPage = () => {
       setIsFinished(true);
 
     } catch (error) {
-      console.error(error);
-      alert("Natijalarni olishda xatolik bo'ldi.");
-      navigate('/');
-    } finally {
+      console.error("Xatolik:", error);
+      alert(`Xatolik yuz berdi: ${error.message}. Iltimos, qaytadan urinib ko'ring.`);
+      // Xato bo'lsa bosh sahifaga otmaymiz, o'quvchi qayta "Yuborish" ni bosishi mumkin
       setIsChecking(false);
     }
   };
 
   if (!lesson) return <div className="text-center p-10">Yuklanmoqda...</div>;
 
-  // 3. YUKLANISH EKRANI
   if (isChecking) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-white p-5 text-center">
       <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mb-6"></div>
       <h2 className="text-xl font-bold text-gray-800">Natijalar tahlil qilinmoqda...</h2>
-      <p className="text-gray-500">AI barcha javoblaringizni tekshiryapti 🧠</p>
+      <p className="text-gray-500 mt-2">Grammatika va so'z boyligi tekshirilyapti 📚</p>
+      <p className="text-xs text-red-400 mt-4">(Bu 10-15 soniya vaqt olishi mumkin)</p>
     </div>
   );
 
-  // 4. NATIJALAR EKRANI (REPORT CARD)
   if (isFinished && finalResults) {
     const totalScore = finalResults.reduce((acc, curr) => acc + curr.score, 0);
     const maxScore = lesson.sentences.length * 5;
@@ -127,8 +132,9 @@ const LessonPage = () => {
       <div className="min-h-screen bg-gray-50 p-4 pb-10">
         <div className="bg-white p-6 rounded-3xl shadow-lg mb-6 text-center">
           <h1 className="text-2xl font-bold text-gray-800 mb-2">Imtihon Tugadi! 🎉</h1>
-          <div className="text-5xl font-extrabold text-[#2481cc] my-4">{totalScore} / {maxScore}</div>
-          <p className="text-gray-500">Sizning umumiy natijangiz</p>
+          <div className={`text-5xl font-extrabold my-4 ${totalScore/maxScore > 0.8 ? 'text-green-600' : 'text-blue-600'}`}>
+            {totalScore} / {maxScore}
+          </div>
           <button onClick={() => navigate('/')} className="mt-4 bg-gray-800 text-white px-6 py-3 rounded-xl font-bold">Bosh sahifa</button>
         </div>
 
@@ -144,19 +150,19 @@ const LessonPage = () => {
               
               <div className="grid grid-cols-1 gap-2 text-sm">
                 <div className={`p-3 rounded-xl border ${item.score === 5 ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
-                  <span className="text-[10px] uppercase font-bold opacity-60 block">Sizning javobingiz:</span>
+                  <span className="text-[10px] uppercase font-bold opacity-60 block">Javobingiz:</span>
                   <span className="font-medium text-gray-900">{item.userAnswer || "(Javob yo'q)"}</span>
                 </div>
                 {item.score < 5 && (
                   <div className="p-3 rounded-xl bg-blue-50 border border-blue-100">
-                    <span className="text-[10px] uppercase font-bold opacity-60 block">To'g'ri javob:</span>
+                    <span className="text-[10px] uppercase font-bold opacity-60 block">To'g'ri javob (Namuna):</span>
                     <span className="font-medium text-blue-900">{item.teacherTrans}</span>
                   </div>
                 )}
               </div>
 
               <div className="mt-3 text-xs text-gray-500 italic border-t pt-2">
-                💡 AI: {item.feedback}
+                🤖 <b>AI Izohi:</b> {item.feedback}
               </div>
             </div>
           ))}
@@ -165,15 +171,13 @@ const LessonPage = () => {
     );
   }
 
-  // 5. SAVOL BERISH EKRANI (IMTIHON JARAYONI)
   const progress = ((currentIndex + 1) / lesson.sentences.length) * 100;
 
   return (
     <div className="min-h-screen bg-[#f4f4f5] flex flex-col pb-10">
-      {/* Header */}
       <div className="bg-white p-4 sticky top-0 z-10 shadow-sm border-b border-gray-200">
         <div className="flex justify-between items-center mb-3">
-          <button onClick={() => navigate('/')} className="text-[#2481cc] font-semibold text-sm">← Bekor qilish</button>
+          <button onClick={() => navigate('/')} className="text-[#2481cc] font-semibold text-sm">← Chiqish</button>
           <span className="text-xs font-bold text-gray-400 uppercase">Savol {currentIndex + 1} / {lesson.sentences.length}</span>
         </div>
         <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
@@ -182,7 +186,6 @@ const LessonPage = () => {
       </div>
 
       <div className="flex-1 p-5 max-w-lg mx-auto w-full flex flex-col gap-6">
-        {/* Savol Kartochkasi */}
         <div className="bg-white p-5 rounded-2xl rounded-tl-none shadow-sm border border-blue-50 relative mt-2">
           <div className="flex justify-between items-start gap-3">
             <div className="flex-1">
@@ -199,7 +202,6 @@ const LessonPage = () => {
           <div className="absolute -left-2 top-0 w-0 h-0 border-t-[10px] border-t-white border-l-[10px] border-l-transparent"></div>
         </div>
 
-        {/* Javob yozish */}
         <div className="flex-1 flex flex-col gap-4">
            <textarea
             value={userAnswer}

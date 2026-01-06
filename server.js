@@ -6,10 +6,10 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
+// Timeoutni oshiramiz (katta testlar uchun)
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
-// Debug uchun log
 app.use((req, res, next) => {
   console.log(`[${req.method}] ${req.path}`);
   next();
@@ -19,11 +19,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY, 
 });
 
-app.get('/', (req, res) => res.send('AI Server (Bulk Quiz Mode) ishlayapti! ✅'));
+app.get('/', (req, res) => res.send('AI Server (Grammar Strict) ishlayapti! ✅'));
 
-// 🔥 YANGI: BARCHA JAVOBLARNI BIRATOLASIGA TEKSHIRISH
 app.post('/check-quiz', async (req, res) => {
-  const { quizData } = req.body; // Bu yerda savollar va javoblar ro'yxati keladi
+  const { quizData } = req.body;
 
   if (!quizData || !Array.isArray(quizData)) {
     return res.status(400).json({ error: "Ma'lumotlar noto'g'ri formatda" });
@@ -32,7 +31,7 @@ app.post('/check-quiz', async (req, res) => {
   console.log(`Checking ${quizData.length} items...`);
 
   try {
-    // AI uchun ma'lumotni tayyorlaymiz
+    // AI ga yuboriladigan ma'lumot
     const quizText = JSON.stringify(quizData.map((item, index) => ({
       id: index,
       savol: item.question,
@@ -41,27 +40,31 @@ app.post('/check-quiz', async (req, res) => {
     })));
 
     const prompt = `
-      Sen IELTS o'qituvchisisan. Quyida o'quvchining test javoblari ro'yxati keltirilgan.
-      Har birini alohida tekshirib, baholab ber.
+      Sen qattiqqo'l IELTS Examiner'san. Quyida o'quvchi javoblari keltirilgan.
+      Har bir javobni alohida tahlil qil.
 
       MA'LUMOTLAR:
       ${quizText}
 
-      BAHOLASH QOIDASI:
-      1. Agar o'quvchi javobi ustozniki bilan ma'nodosh bo'lsa -> 5 ball.
-      2. Grammatik xato bo'lsa -> 4 yoki 3 ball.
-      3. Ma'no noto'g'ri bo'lsa -> 1-2 ball.
+      BAHOLASH MEZONI (RUBRIC):
+      1. **5 ball (Perfect):** Ma'no to'liq to'g'ri VA Grammatika/So'z boyligi xatosiz.
+      2. **4 ball (Good):** Ma'no to'g'ri, lekin kichik grammatik xato (artikl, spelling) yoki so'z tanlashda noaniqlik bor.
+      3. **3 ball (Average):** Ma'no tushunarli, lekin jiddiy grammatik xatolar (zamonlar noto'g'ri, so'z tartibi buzilgan).
+      4. **1-2 ball (Poor):** Ma'no noto'g'ri yoki tarjima qilinmagan.
 
-      JAVOB FORMATI (JSON):
+      MUHIM:
+      - Agar o'quvchi "I go" o'rniga "I going" desa, bu jiddiy grammatik xato -> 3 ball qo'y.
+      - Izohda aynan qaysi grammatik qoida buzilganini ayt (Masalan: "To be fe'li tushib qolgan").
+
+      JAVOB FORMATI (JSON bo'lishi SHART):
       {
         "results": [
           {
             "id": 0,
-            "score": 5,
-            "feedback": "Izoh...",
+            "score": 0,
+            "feedback": "Grammatik va leksik izoh...",
             "correction": "To'g'ri javob..."
-          },
-          ...
+          }
         ]
       }
     `;
@@ -69,16 +72,24 @@ app.post('/check-quiz', async (req, res) => {
     const completion = await openai.chat.completions.create({
       messages: [{ role: "system", content: prompt }],
       model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
+      response_format: { type: "json_object" }, // JSON majburiy
       temperature: 0.2,
     });
 
-    const aiResponse = JSON.parse(completion.choices[0].message.content);
+    // 🔥 XATOLIKNI TUZATISH: AI javobini tozalash
+    let rawContent = completion.choices[0].message.content;
+    // Ba'zan AI markdown qo'shadi, ularni olib tashlaymiz
+    rawContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    const aiResponse = JSON.parse(rawContent);
+    
+    console.log("AI muvaffaqiyatli tekshirdi.");
     res.json(aiResponse.results);
 
   } catch (error) {
-    console.error("AI Xatoligi:", error);
-    res.status(500).json({ error: "Serverda xatolik" });
+    console.error("AI Server Xatosi:", error);
+    // Frontendga aniq xato qaytarish
+    res.status(500).json({ error: "Serverda tahlil qilishda xatolik bo'ldi. Qaytadan urining." });
   }
 });
 
