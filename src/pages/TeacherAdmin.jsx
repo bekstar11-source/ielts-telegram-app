@@ -1,92 +1,105 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, orderBy, query, serverTimestamp, where } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 
 const TeacherAdmin = () => {
+  // Tabs
+  const [activeTab, setActiveTab] = useState('lessons'); // 'lessons' | 'students' | 'results'
+
+  // --- LESSON STATES ---
   const [title, setTitle] = useState('');
   const [sentences, setSentences] = useState([{ original: '', translation: '' }]);
   const [direction, setDirection] = useState('en-uz');
+  const [targetGroup, setTargetGroup] = useState('all'); // 🔥 Qaysi guruhga?
   
-  // 🔥 GURUH BOSHQARUVI
-  const [groups, setGroups] = useState([]); 
-  const [newGroupName, setNewGroupName] = useState('');
-
-  // Bulk Mode
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
-
-  // Natijalar
-  const [results, setResults] = useState([]);
-  const [filteredResults, setFilteredResults] = useState([]);
-  const [selectedGroupFilter, setSelectedGroupFilter] = useState('all');
-  
   const [loading, setLoading] = useState(false);
+
+  // --- STUDENT STATES ---
+  const [groups, setGroups] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [newGroupName, setNewGroupName] = useState('');
+  
+  // Yangi o'quvchi qo'shish
+  const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentGroup, setNewStudentGroup] = useState('');
+  const [newStudentPin, setNewStudentPin] = useState('');
+
+  // --- RESULTS STATES ---
+  const [results, setResults] = useState([]);
   const [selectedResult, setSelectedResult] = useState(null);
 
   useEffect(() => { 
-    fetchResults(); 
-    fetchGroups(); // Guruhlarni yuklash
+    fetchGroups();
+    fetchStudents();
+    fetchResults();
   }, []);
 
-  // 1. GURUHLARNI YUKLASH
+  // --- FETCH FUNCTIONS ---
   const fetchGroups = async () => {
     const q = query(collection(db, "groups"), orderBy("createdAt", "desc"));
     const snap = await getDocs(q);
     setGroups(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
   };
 
-  // 2. YANGI GURUH QO'SHISH
-  const addGroup = async () => {
-    if (!newGroupName.trim()) return alert("Guruh nomini yozing!");
-    try {
-      await addDoc(collection(db, "groups"), { 
-        name: newGroupName.trim(), 
-        createdAt: serverTimestamp() 
-      });
-      setNewGroupName('');
-      fetchGroups();
-    } catch (e) { alert("Xato: " + e.message); }
+  const fetchStudents = async () => {
+    const q = query(collection(db, "users"), orderBy("name", "asc"));
+    const snap = await getDocs(q);
+    setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
   };
 
-  // 3. GURUHNI O'CHIRISH
-  const deleteGroup = async (id) => {
-    if (window.confirm("Bu guruhni o'chirmoqchimisiz?")) {
-      await deleteDoc(doc(db, "groups", id));
-      fetchGroups();
-    }
-  };
-
-  // Natijalarni yuklash
   const fetchResults = async () => {
     const q = query(collection(db, "results"), orderBy("date", "desc"));
     const snap = await getDocs(q);
-    const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    setResults(data);
-    setFilteredResults(data);
+    setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
   };
 
-  // Filtrlash
-  useEffect(() => {
-    if (selectedGroupFilter === 'all') {
-        setFilteredResults(results);
-    } else {
-        setFilteredResults(results.filter(r => (r.studentGroup || "Guruhsiz") === selectedGroupFilter));
-    }
-  }, [selectedGroupFilter, results]);
+  // --- ACTIONS ---
+  const addGroup = async () => {
+    if (!newGroupName.trim()) return;
+    await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() });
+    setNewGroupName(''); fetchGroups();
+  };
+
+  const addStudent = async () => {
+    if (!newStudentName || !newStudentGroup || !newStudentPin) return alert("Hamma maydonni to'ldiring!");
+    if (newStudentPin.length < 4) return alert("PIN kod kamida 4 ta raqam bo'lsin");
+
+    await addDoc(collection(db, "users"), {
+        name: newStudentName,
+        group: newStudentGroup,
+        pin: newStudentPin, // 🔒 Parol
+        createdAt: serverTimestamp()
+    });
+    alert("O'quvchi qo'shildi! ✅");
+    setNewStudentName(''); setNewStudentPin(''); fetchStudents();
+  };
 
   const saveLesson = async () => {
-    if (!title) return alert("Mavzu yozilmadi!");
+    if (!title) return alert("Mavzu yo'q");
     setLoading(true);
     try {
-      await addDoc(collection(db, "assignments"), { title, sentences, direction, createdAt: serverTimestamp() });
+      await addDoc(collection(db, "assignments"), { 
+          title, sentences, direction, 
+          targetGroup, // 🔥 Dars kim uchun?
+          createdAt: serverTimestamp() 
+      });
       alert("Dars saqlandi! ✅");
       setTitle(''); setSentences([{ original: '', translation: '' }]); setBulkText('');
     } catch (e) { alert("Xato: " + e.message); }
     setLoading(false);
   };
 
-  // Bulk text processor
+  const deleteDocItem = async (col, id, refreshFunc) => {
+    if(window.confirm("O'chiraymi?")) {
+        await deleteDoc(doc(db, col, id));
+        refreshFunc();
+    }
+  };
+
+  // Bulk process
   const processBulkText = () => {
     if (!bulkText.trim()) return;
     const lines = bulkText.split('\n');
@@ -99,126 +112,158 @@ const TeacherAdmin = () => {
     });
     if(parsed.length) { setSentences(parsed); setIsBulkMode(false); }
   };
-  
-  const handleDelete = async (id) => { if (window.confirm("O'chiraymi?")) { await deleteDoc(doc(db, "results", id)); fetchResults(); } };
-  
-  const exportToExcel = () => {
-    const data = filteredResults.map(r => ({ Guruh: r.studentGroup, Ism: r.studentName, Mavzu: r.lessonTitle, Ball: r.totalScore }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Natijalar");
-    XLSX.writeFile(wb, "Natijalar.xlsx");
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-6 font-sans">
       
-      {/* 🔥 1. GURUHLARNI BOSHQARISH PANEL */}
-      <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 mb-8 max-w-6xl mx-auto">
-        <h2 className="text-xl font-bold mb-4 text-gray-800">Guruhlarni Sozlash 👥</h2>
-        <div className="flex gap-2 mb-4">
-            <input 
-                value={newGroupName} 
-                onChange={e => setNewGroupName(e.target.value)}
-                placeholder="Yangi guruh nomi (masalan: Pre-IELTS A)" 
-                className="flex-1 p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500"
-            />
-            <button onClick={addGroup} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-green-700">+ Qo'shish</button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-            {groups.map(g => (
-                <div key={g.id} className="bg-blue-50 px-4 py-2 rounded-full text-blue-800 font-bold text-sm flex items-center gap-2 border border-blue-100">
-                    {g.name}
-                    <button onClick={() => deleteGroup(g.id)} className="text-red-400 hover:text-red-600 ml-1">×</button>
-                </div>
-            ))}
-            {groups.length === 0 && <span className="text-gray-400 text-sm">Hozircha guruhlar yo'q.</span>}
-        </div>
+      {/* MENU TABS */}
+      <div className="flex justify-center mb-8 bg-white p-2 rounded-2xl shadow-sm max-w-xl mx-auto">
+          {['lessons', 'students', 'results'].map(tab => (
+              <button 
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex-1 py-2 rounded-xl font-bold capitalize transition-all ${activeTab === tab ? 'bg-blue-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}
+              >
+                {tab === 'lessons' ? '📝 Darslar' : tab === 'students' ? '👥 O\'quvchilar' : '📈 Natijalar'}
+              </button>
+          ))}
       </div>
 
-      {/* Statistika va Filtr */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 max-w-6xl mx-auto">
-        <div className="bg-blue-600 text-white p-5 rounded-2xl shadow-lg">
-            <h2 className="text-3xl font-bold">{filteredResults.length}</h2>
-            <p className="opacity-80">Jami Natijalar</p>
-        </div>
-        <div className="bg-white p-5 rounded-2xl shadow-lg flex items-center justify-center">
-            <select 
-                value={selectedGroupFilter} 
-                onChange={(e) => setSelectedGroupFilter(e.target.value)}
-                className="w-full p-3 bg-gray-100 rounded-xl font-bold text-gray-700 outline-none"
-            >
-                <option value="all">🌍 Barcha Guruhlar</option>
-                {groups.map(g => (
-                    <option key={g.id} value={g.name}>👥 {g.name}</option>
-                ))}
-            </select>
-        </div>
-        <div className="bg-white p-5 rounded-2xl shadow-lg flex items-center justify-center">
-           <button onClick={exportToExcel} className="bg-green-600 text-white px-6 py-2 rounded-xl font-bold shadow-md hover:bg-green-700">📊 Excel</button>
-        </div>
-      </div>
-
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
-        
-        {/* Dars Yaratish */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-fit">
-          <h2 className="text-xl font-bold mb-4">Yangi Dars 📝</h2>
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu nomi..." className="w-full p-3 border rounded-xl mb-4 bg-gray-50 outline-none focus:ring-2 ring-blue-500"/>
-          
-          <div className="mb-4">
-             <select value={direction} onChange={(e) => setDirection(e.target.value)} className="w-full p-3 border rounded-xl bg-blue-50 text-blue-800 font-bold">
-                 <option value="en-uz">🇬🇧 English {'>'} 🇺🇿 Uzbek</option>
-                 <option value="uz-en">🇺🇿 Uzbek {'>'} 🇬🇧 English</option>
-             </select>
-          </div>
-
-          <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-xl">
-             <button onClick={() => setIsBulkMode(false)} className={`flex-1 py-2 font-bold rounded-lg ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Birma-bir</button>
-             <button onClick={() => setIsBulkMode(true)} className={`flex-1 py-2 font-bold rounded-lg ${isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Tezkor</button>
-          </div>
-
-          {!isBulkMode ? (
-             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 mb-4">
-               {sentences.map((s, i) => (
-                 <div key={i} className="flex gap-2">
-                    <input placeholder="Original..." className="flex-1 p-2 border rounded-lg" value={s.original} onChange={e => {const n=[...sentences]; n[i].original=e.target.value; setSentences(n)}}/>
-                    <input placeholder="Tarjima..." className="flex-1 p-2 border rounded-lg" value={s.translation} onChange={e => {const n=[...sentences]; n[i].translation=e.target.value; setSentences(n)}}/>
-                 </div>
-               ))}
-               <button onClick={() => setSentences([...sentences, {original:'', translation:''}])} className="text-blue-500 font-bold text-sm">+ Qo'shish</button>
+      {/* --- 1. DARSLAR BO'LIMI --- */}
+      {activeTab === 'lessons' && (
+          <div className="max-w-4xl mx-auto bg-white p-8 rounded-3xl shadow-lg border border-gray-100">
+             <h2 className="text-2xl font-bold mb-6">Yangi Dars Yaratish</h2>
+             
+             {/* Dars Sozlamalari */}
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu nomi..." className="p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500"/>
+                
+                {/* 🔥 GURUH TANLASH */}
+                <select value={targetGroup} onChange={e => setTargetGroup(e.target.value)} className="p-3 border rounded-xl bg-yellow-50 font-bold text-yellow-800">
+                    <option value="all">🌍 Barcha Guruhlar Uchun</option>
+                    {groups.map(g => <option key={g.id} value={g.name}>{g.name}</option>)}
+                </select>
              </div>
-          ) : (
+
              <div className="mb-4">
-                <textarea value={bulkText} onChange={e => setBulkText(e.target.value)} className="w-full h-32 p-3 border rounded-xl text-sm" placeholder="Savol | Javob"/>
-                <button onClick={processBulkText} className="w-full bg-blue-100 text-blue-700 py-2 rounded-lg font-bold mt-2">Formatlash</button>
+                <select value={direction} onChange={e => setDirection(e.target.value)} className="w-full p-3 border rounded-xl bg-blue-50 text-blue-800 font-bold">
+                    <option value="en-uz">🇬🇧 English -> 🇺🇿 Uzbek</option>
+                    <option value="uz-en">🇺🇿 Uzbek -> 🇬🇧 English</option>
+                </select>
              </div>
-          )}
 
-          <button onClick={saveLesson} disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold">SAQLASH ✅</button>
-        </div>
+             {/* Gaplar Kiritish */}
+             <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-xl">
+                <button onClick={() => setIsBulkMode(false)} className={`flex-1 py-2 font-bold rounded-lg ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Birma-bir</button>
+                <button onClick={() => setIsBulkMode(true)} className={`flex-1 py-2 font-bold rounded-lg ${isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Tezkor</button>
+             </div>
 
-        {/* Natijalar Ro'yxati */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 h-[600px] flex flex-col">
-            <h2 className="text-xl font-bold mb-4">Natijalar</h2>
-            <div className="overflow-y-auto flex-1 custom-scrollbar">
-                {filteredResults.map(r => (
-                    <div key={r.id} className="flex justify-between items-center p-3 hover:bg-gray-50 border-b cursor-pointer" onClick={() => setSelectedResult(r)}>
-                        <div>
-                            <div className="flex gap-2 items-center">
-                                <p className="font-bold text-gray-800">{r.studentName}</p>
-                                <span className="bg-gray-200 text-gray-600 text-[10px] px-2 rounded-full">{r.studentGroup || "Guruhsiz"}</span>
-                            </div>
-                            <p className="text-xs text-gray-400">{r.lessonTitle} • {r.totalScore} ball</p>
-                        </div>
-                        <span className="text-xl">👁️</span>
+             {!isBulkMode ? (
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 mb-4 custom-scrollbar">
+                  {sentences.map((s, i) => (
+                    <div key={i} className="flex gap-2">
+                       <input placeholder="Original..." className="flex-1 p-2 border rounded-lg" value={s.original} onChange={e => {const n=[...sentences]; n[i].original=e.target.value; setSentences(n)}}/>
+                       <input placeholder="Tarjima..." className="flex-1 p-2 border rounded-lg" value={s.translation} onChange={e => {const n=[...sentences]; n[i].translation=e.target.value; setSentences(n)}}/>
                     </div>
-                ))}
-            </div>
-        </div>
-      </div>
+                  ))}
+                  <button onClick={() => setSentences([...sentences, {original:'', translation:''}])} className="text-blue-500 font-bold text-sm">+ Qo'shish</button>
+                </div>
+             ) : (
+                <div className="mb-4">
+                   <textarea value={bulkText} onChange={e => setBulkText(e.target.value)} className="w-full h-32 p-3 border rounded-xl text-sm font-mono" placeholder="I go | Men boraman"/>
+                   <button onClick={processBulkText} className="w-full bg-blue-100 text-blue-700 py-2 rounded-lg font-bold mt-2">Formatlash</button>
+                </div>
+             )}
 
-      {/* Modal - Details */}
+             <button onClick={saveLesson} disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition">SAQLASH ✅</button>
+          </div>
+      )}
+
+      {/* --- 2. O'QUVCHILAR BO'LIMI --- */}
+      {activeTab === 'students' && (
+          <div className="max-w-4xl mx-auto space-y-8">
+              
+              {/* Guruh qo'shish */}
+              <div className="bg-white p-6 rounded-3xl shadow-sm">
+                  <h3 className="font-bold text-gray-800 mb-4">1. Guruhlar</h3>
+                  <div className="flex gap-2 mb-4">
+                      <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Guruh nomi..." className="flex-1 p-3 border rounded-xl"/>
+                      <button onClick={addGroup} className="bg-gray-800 text-white px-6 rounded-xl font-bold">+ Guruh</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                      {groups.map(g => (
+                          <div key={g.id} className="bg-gray-100 px-3 py-1 rounded-lg text-sm font-bold flex items-center gap-2">
+                              {g.name} 
+                              <button onClick={() => deleteDocItem("groups", g.id, fetchGroups)} className="text-red-500 ml-1">×</button>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+
+              {/* O'quvchi qo'shish */}
+              <div className="bg-white p-6 rounded-3xl shadow-sm">
+                  <h3 className="font-bold text-gray-800 mb-4">2. O'quvchi Ro'yxatga Olish</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                      <select value={newStudentGroup} onChange={e => setNewStudentGroup(e.target.value)} className="p-3 border rounded-xl bg-white">
+                          <option value="">Guruhni tanlang</option>
+                          {groups.map(g => <option key={g.id} value={g.name}>{g.name}</option>)}
+                      </select>
+                      <input value={newStudentName} onChange={e => setNewStudentName(e.target.value)} placeholder="F.I.SH" className="p-3 border rounded-xl"/>
+                      <input value={newStudentPin} onChange={e => setNewStudentPin(e.target.value)} type="number" placeholder="PIN (masalan: 1234)" className="p-3 border rounded-xl"/>
+                      <button onClick={addStudent} className="bg-green-600 text-white font-bold rounded-xl shadow-lg shadow-green-200">Qo'shish 👤</button>
+                  </div>
+
+                  {/* Ro'yxat */}
+                  <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                          <thead className="bg-gray-50 text-gray-400 uppercase text-xs">
+                              <tr><th className="p-3">Guruh</th><th className="p-3">Ism</th><th className="p-3">PIN</th><th className="p-3 text-right">Amal</th></tr>
+                          </thead>
+                          <tbody className="divide-y">
+                              {students.map(s => (
+                                  <tr key={s.id}>
+                                      <td className="p-3 font-bold text-blue-600">{s.group}</td>
+                                      <td className="p-3 font-medium">{s.name}</td>
+                                      <td className="p-3 font-mono text-gray-500">****</td> {/* PINni yashirish */}
+                                      <td className="p-3 text-right">
+                                          <button onClick={() => deleteDocItem("users", s.id, fetchStudents)} className="text-red-500 hover:bg-red-50 p-2 rounded">O'chirish</button>
+                                      </td>
+                                  </tr>
+                              ))}
+                          </tbody>
+                      </table>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* --- 3. NATIJALAR BO'LIMI --- */}
+      {activeTab === 'results' && (
+          <div className="max-w-4xl mx-auto bg-white p-6 rounded-3xl shadow-sm h-[80vh] overflow-y-auto">
+             <table className="w-full text-left">
+                  <thead className="sticky top-0 bg-white shadow-sm">
+                      <tr className="text-xs text-gray-400 uppercase">
+                          <th className="p-3">O'quvchi</th>
+                          <th className="p-3">Guruh</th>
+                          <th className="p-3">Ball</th>
+                          <th className="p-3 text-right">Ko'rish</th>
+                      </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                      {results.map(r => (
+                          <tr key={r.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedResult(r)}>
+                              <td className="p-3 font-bold">{r.studentName}</td>
+                              <td className="p-3 text-xs text-gray-500">{r.studentGroup || '-'}</td>
+                              <td className="p-3 font-bold text-blue-600">{r.totalScore}</td>
+                              <td className="p-3 text-right">👁️</td>
+                          </tr>
+                      ))}
+                  </tbody>
+             </table>
+          </div>
+      )}
+
+      {/* MODAL VIEW */}
       {selectedResult && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
             <div className="bg-white w-full max-w-2xl rounded-2xl p-6 h-[80vh] overflow-y-auto">
@@ -227,16 +272,16 @@ const TeacherAdmin = () => {
                     <button onClick={() => setSelectedResult(null)} className="text-2xl text-gray-400">×</button>
                 </div>
                 {selectedResult.history?.map((item, idx) => (
-                    <div key={idx} className="mb-4 p-4 border rounded-xl bg-gray-50">
-                        <div className="flex justify-between">
-                             <span className="font-bold text-sm">#{idx+1} {item.question}</span>
-                             <span className={`font-bold ${item.score === 5 ? 'text-green-600' : 'text-red-500'}`}>{item.score}/5</span>
+                    <div key={idx} className="mb-4 p-4 border rounded-xl bg-gray-50 text-sm">
+                        <div className="flex justify-between font-bold mb-2">
+                             <span>#{idx+1} {item.question}</span>
+                             <span className={item.score===5?'text-green-600':'text-red-500'}>{item.score}/5</span>
                         </div>
-                        <div className="grid gap-2 mt-2 text-sm">
-                            <div className="bg-white p-2 border rounded"><span className="text-xs font-bold text-gray-400 block">O'quvchi:</span>{item.userAnswer}</div>
-                            <div className="bg-blue-50 p-2 border rounded"><span className="text-xs font-bold text-gray-400 block">Ustoz:</span>{item.teacherTrans}</div>
+                        <div className="grid gap-2 text-xs">
+                             <div className="bg-white p-2 border rounded">Siz: {item.userAnswer}</div>
+                             <div className="bg-blue-50 p-2 border rounded">To'g'ri: {item.teacherTrans}</div>
                         </div>
-                        <p className="text-xs text-gray-500 italic mt-2 border-t pt-1">AI: {item.feedback}</p>
+                        <p className="mt-2 text-gray-500 italic">AI: {item.feedback}</p>
                     </div>
                 ))}
             </div>
