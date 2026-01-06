@@ -3,50 +3,53 @@ import cors from 'cors';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 
-// .env faylidagi parollarni yuklash
 dotenv.config();
 
 const app = express();
-
-// Middleware (Frontend bilan bog'lanish va JSON o'qish uchun)
 app.use(cors());
 app.use(express.json());
 
-// OpenAI ni sozlash
+// Loglarni ko'rish uchun (Debug)
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY, 
 });
 
-// 1. Server ishlayotganini tekshirish uchun (Health Check)
-app.get('/', (req, res) => {
-  res.send('IELTS AI Teacher Serveri muvaffaqiyatli ishlayapti! ✅');
-});
+app.get('/', (req, res) => res.send('AI Server (GPT-4o-mini) ishlayapti! ✅'));
 
-// 2. Bitta gapni tekshirish (Check Single Answer)
+// 1. JAVOBNI TEKSHIRISH
 app.post('/check-answer', async (req, res) => {
   const { original, userAnswer } = req.body;
 
-  // Ma'lumotlar kelmasa xato qaytarish
+  // Logga chiqarib ko'ramiz nima kelayotganini
+  console.log("Savol:", original);
+  console.log("Javob:", userAnswer);
+
   if (!original || !userAnswer) {
-    return res.status(400).json({ error: "Ma'lumotlar to'liq emas" });
+    return res.status(400).json({ error: "Ma'lumot yo'q" });
   }
 
   try {
+    // Promptni Soddalashtiramiz va Aniq qilamiz
     const prompt = `
-      Sen professional IELTS instruktorisan. O'quvchi inglizcha gapni o'zbekchaga tarjima qildi.
-      
-      Inglizcha gap: "${original}"
-      O'quvchining tarjimasi: "${userAnswer}"
-      
-      Vazifang:
-      1. Tarjimani 1 dan 5 gacha bahola (score). 
-      2. Agar tarjima ma'nosiz bo'lsa yoki so'zma-so'z xato bo'lsa past ball qo'y.
-      3. "feedback" qismida qisqa va tushunarli grammatik izoh ber (O'zbek tilida).
-      4. "correction" qismida eng to'g'ri va adabiy o'zbekcha tarjimani yoz.
-      
-      Javobni FAQAT mana shu JSON formatida qaytar:
+      Sen professional tarjimon va o'qituvchisan.
+      Vazifa: Ingliz tilidagi gapning o'zbekcha tarjimasini tekshirish.
+
+      Original (EN): "${original}"
+      O'quvchi tarjimasi (UZ): "${userAnswer}"
+
+      Talablar:
+      1. Baho (1-5): Ma'no to'g'ri bo'lsa 5 yoki 4 qo'y. Grammatik xato bo'lsa ham ma'no to'g'ri bo'lsa past baho qo'yma.
+      2. Feedback: Agar xato bo'lsa, o'zbek tilida qisqa tushuntir. Agar to'g'ri bo'lsa "Barakalla!" de.
+      3. Correction: Eng tabiiy va to'g'ri o'zbekcha variantni yoz.
+
+      Javob JSON formatida bo'lsin:
       {
-        "score": 4,
+        "score": 5,
         "feedback": "...",
         "correction": "..."
       }
@@ -54,73 +57,51 @@ app.post('/check-answer', async (req, res) => {
 
     const completion = await openai.chat.completions.create({
       messages: [{ role: "system", content: prompt }],
-      model: "gpt-3.5-turbo", // Arzonroq va tez. Sifatliroq kerak bo'lsa "gpt-4o"
+      model: "gpt-4o-mini", // 🔥 ENG MUHIM O'ZGARISH (Arzon va Aqlli)
       response_format: { type: "json_object" },
+      temperature: 0.2, // Pastroq qildik, shunda u aniq javob beradi, "ijod" qilmaydi
     });
 
     const aiResult = JSON.parse(completion.choices[0].message.content);
+    
+    console.log("AI Javobi:", aiResult); // Serverda javobni ko'rish uchun
     res.json(aiResult);
 
   } catch (error) {
-    console.error("OpenAI Xatoligi (/check-answer):", error);
-    res.status(500).json({ 
-      error: "AI bilan bog'lanishda xatolik",
-      details: error.message 
-    });
+    console.error("AI Xatoligi:", error);
+    res.status(500).json({ error: "AI serverda xatolik" });
   }
 });
 
-// 3. Yakuniy Xulosa Yasash (Create Summary for Teacher)
+// 2. XULOSA YASASH (SUMMARY)
 app.post('/create-summary', async (req, res) => {
   const { history } = req.body;
 
-  if (!history || history.length === 0) {
-    return res.json({ summary: "Tahlil qilish uchun yetarli ma'lumot yo'q." });
-  }
+  if (!history || history.length === 0) return res.json({ summary: "Ma'lumot yetarli emas." });
 
   try {
-    // Tarixni qisqartirib string holiga keltiramiz (token tejash uchun)
-    const historyText = JSON.stringify(history.map(item => ({
-      savol: item.question,
-      javob: item.userAnswer,
-      baho: item.score
-    })));
+    const historyText = history.map(h => `Savol: "${h.question}" | Javob: "${h.userAnswer}" | Ball: ${h.score}`).join("\n");
 
     const prompt = `
-      Sen IELTS o'qituvchisiga yordamchisining. O'quvchi testni tugatdi.
-      Quyida uning javoblari tarixi keltirilgan:
+      Quyidagi test natijalariga qarab, o'qituvchi uchun o'zbek tilida qisqa hisobot yoz.
+      Faqat o'quvchining xatolariga urg'u ber.
+      
+      Natijalar:
       ${historyText}
-
-      Vazifang:
-      Ustoz uchun o'quvchining darajasi haqida QISQA hisobot (Report) yoz.
-      
-      Talablar:
-      1. O'quvchining kuchli va kuchsiz tomonlarini aniqla (grammatika, so'z boyligi).
-      2. Qaysi mavzuda (zamonlar, predloglar, so'z tartibi) ko'p xato qilganini ayt.
-      3. Faqat O'zbek tilida yoz.
-      4. Ortiqcha "Salom", "Rahmat" so'zlarisiz, faqat faktlarni yoz.
-      
-      Namuna: "O'quvchining so'z boyligi yaxshi, lekin Present Perfect zamonini ishlatishda qiynalmoqda. Gap tuzilishi ba'zan buzilgan."
     `;
 
     const completion = await openai.chat.completions.create({
       messages: [{ role: "system", content: prompt }],
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o-mini", // Bu ham yangilandi
     });
 
-    const summaryText = completion.choices[0].message.content;
-    
-    // Natijani frontendga qaytaramiz
-    res.json({ summary: summaryText });
+    res.json({ summary: completion.choices[0].message.content });
 
   } catch (error) {
-    console.error("OpenAI Xatoligi (/create-summary):", error);
-    res.json({ summary: "Xulosa yaratishda texnik xatolik bo'ldi, lekin ballar saqlandi." });
+    console.error("Summary Error:", error);
+    res.json({ summary: "Hisobot yaratishda xatolik." });
   }
 });
 
-// Serverni ishga tushirish
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`✅ Server ${PORT}-portda ishlayapti.`);
-});
+app.listen(PORT, () => console.log(`🚀 Server ${PORT}-portda ishlayapti`));
