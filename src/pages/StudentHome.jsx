@@ -1,110 +1,102 @@
 import React, { useEffect, useState } from 'react';
-import { db } from '../firebase'; // Bazani chaqiramiz
-import { collection, getDocs, orderBy, query } from 'firebase/firestore'; // Bazadan o'qish buyruqlari
-import { useNavigate } from 'react-router-dom'; // Sahifa almashish uchun
+import { db } from '../firebase';
+import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { useNavigate } from 'react-router-dom';
 
 const StudentHome = () => {
-  const [assignments, setAssignments] = useState([]); // Darslar ro'yxati
-  const [loading, setLoading] = useState(true); // Yuklanish holati
-  const navigate = useNavigate(); // Linkga o'tish "pulti"
+  const [assignments, setAssignments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const [userName, setUserName] = useState(localStorage.getItem('studentName') || '');
 
-  // 1. Sahifa ochilganda bazadan darslarni olib kelish
   useEffect(() => {
     const fetchAssignments = async () => {
       try {
-        // 'assignments' papkasidan darslarni sanasi bo'yicha (yangisi tepada) olib kelamiz
         const q = query(collection(db, "assignments"), orderBy("createdAt", "desc"));
         const querySnapshot = await getDocs(q);
-        
-        // Bazadan kelgan g'alati ma'lumotni chiroyli arrayga aylantiramiz
-        const data = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        
+        const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setAssignments(data);
       } catch (error) {
         console.error("Xatolik:", error);
       } finally {
-        setLoading(false); // Yuklash tugadi
+        setLoading(false);
       }
     };
-
     fetchAssignments();
   }, []);
 
-  // 2. "Boshlash" bosilganda ishlaydigan funksiya
-  const startLesson = (id) => {
-    // Bu yerda biz darsning ID raqamini olib, LessonPage sahifasiga yuboramiz
+  const handleStart = (id) => {
+    if (!userName.trim()) {
+      const name = prompt("Davom etish uchun ismingizni kiriting:");
+      if (!name) return;
+      localStorage.setItem('studentName', name);
+      setUserName(name);
+    }
     navigate('/lesson/' + id);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 pb-20">
-      {/* Tepa qism (Header) */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm mb-6 flex justify-between items-center sticky top-2 z-10 border border-gray-100">
+    <div className="min-h-screen bg-[#f4f4f5] p-4">
+      {/* Header - Telegram Style */}
+      <div className="flex items-center justify-between mb-6 pt-2">
         <div>
-          <h1 className="text-xl font-extrabold text-gray-800">Darslar 📚</h1>
-          <p className="text-xs text-gray-500 font-medium">Bilimingizni oshiring</p>
+          <h1 className="text-2xl font-bold text-gray-900">IELTS Lessons</h1>
+          <p className="text-sm text-gray-500">Bugun nimani o'rganamiz?</p>
         </div>
-        <div className="h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">
-          👤
+        <div className="w-10 h-10 bg-[#2481cc] rounded-full flex items-center justify-center text-white font-bold shadow-md">
+          {userName ? userName[0].toUpperCase() : '?'}
         </div>
       </div>
 
-      {/* Yuklanmoqda... */}
-      {loading && (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-          <p className="text-gray-400 text-sm">Darslar yuklanmoqda...</p>
-        </div>
-      )}
-
-      {/* Agar darslar bo'lmasa */}
-      {!loading && assignments.length === 0 && (
-        <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-300">
-          <p className="text-4xl mb-2">📭</p>
-          <p className="text-gray-500 font-medium">Hozircha darslar yo'q</p>
-          <p className="text-xs text-gray-400">Ustoz yangi dars qo'shishini kuting</p>
-        </div>
-      )}
-
-      {/* Darslar ro'yxati */}
-      <div className="space-y-4">
-        {assignments.map((lesson) => (
-          <div key={lesson.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 active:scale-[0.98] transition duration-200">
-            
-            {/* Dars Sarlavhasi */}
-            <div className="flex justify-between items-start mb-3">
-              <h3 className="font-bold text-lg text-gray-800 leading-tight pr-2">
-                {lesson.title}
-              </h3>
-              {/* Agar dars yangi bo'lsa (ixtiyoriy bezak) */}
-              <span className="bg-blue-50 text-blue-600 text-[10px] uppercase px-2 py-1 rounded-lg font-extrabold tracking-wider">
-                Yangi
-              </span>
-            </div>
-            
-            {/* Qo'shimcha ma'lumot */}
-            <div className="flex items-center text-gray-500 text-sm mb-5 gap-4">
-              <span className="flex items-center gap-1">
-                📝 {lesson.sentences ? lesson.sentences.length : 0} ta gap
-              </span>
-              <span className="flex items-center gap-1">
-                ⏱️ 5 daqiqa
-              </span>
-            </div>
-            
-            {/* Tugma */}
-            <button 
-              onClick={() => startLesson(lesson.id)}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-500 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-blue-200 active:shadow-none transition-all"
-            >
-              Boshlash
-            </button>
+      {/* Stats Card */}
+      <div className="bg-gradient-to-br from-[#2481cc] to-[#3ca5f1] p-5 rounded-2xl shadow-lg mb-8 text-white">
+        <p className="text-blue-100 text-sm">Xush kelibsiz,</p>
+        <h2 className="text-xl font-bold">{userName || "O'quvchi"}!</h2>
+        <div className="mt-4 flex gap-4">
+          <div className="bg-white/20 px-3 py-1 rounded-lg text-xs">
+            🔥 {assignments.length} ta dars tayyor
           </div>
-        ))}
+        </div>
       </div>
+
+      {/* Lessons List */}
+      <div className="space-y-4">
+        <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider ml-1">Mavjud darslar</h3>
+        
+        {loading ? (
+          <div className="text-center py-10">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          </div>
+        ) : (
+          assignments.map((lesson) => (
+            <div 
+              key={lesson.id} 
+              onClick={() => handleStart(lesson.id)}
+              className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-[0.98] transition-transform cursor-pointer"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-2xl">
+                  📚
+                </div>
+                <div>
+                  <h4 className="font-bold text-gray-800">{lesson.title}</h4>
+                  <p className="text-xs text-gray-400">{lesson.sentences?.length || 0} ta mashq</p>
+                </div>
+              </div>
+              <div className="text-gray-300">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="9 5l7 7-7 7" />
+                </svg>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Footer info */}
+      <p className="text-center text-gray-400 text-[10px] mt-10">
+        AI IELTS Teacher v2.0 • Telegram Web App
+      </p>
     </div>
   );
 };

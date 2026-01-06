@@ -1,13 +1,48 @@
 <!doctype html>
-<html lang="en">
+<html lang="uz">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>my-ielts-app</title>
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    
+    <title>IELTS AI Coach | Telegram Web App</title>
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <style>
+      /* Telegram yuklanish jarayonida oq ekran ko'rinmasligi uchun */
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #f4f4f5; /* Telegram secondary background color */
+        overflow-x: hidden;
+      }
+      
+      /* Mobil telefonlarda tugmalarni bosganda paydo bo'ladigan kulrang ko'lkani o'chirish */
+      * {
+        -webkit-tap-highlight-color: transparent;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
     <script type="module" src="/src/main.jsx"></script>
+
+    <script>
+      // Telegram Web App-ni ishga tushirish sozlamalari
+      const tg = window.Telegram.WebApp;
+      
+      // Ilovani to'liq ekranga yoyish
+      tg.expand();
+      
+      // Ilova tayyor ekanini Telegramga bildirish
+      tg.ready();
+
+      // Telegram ranglarini tekshirish (ixtiyoriy, konsolda ko'rish uchun)
+      console.log("Telegram Theme:", tg.colorScheme);
+      console.log("User Data:", tg.initDataUnsafe?.user);
+    </script>
   </body>
 </html>

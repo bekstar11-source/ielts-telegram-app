@@ -1,117 +1,80 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, orderBy, query, serverTimestamp } from 'firebase/firestore';
 
 const TeacherAdmin = () => {
-  // Formalar uchun holatlar (State)
-  const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState('');
-  
-  // Gaplar ro'yxati (boshlanishiga 1 ta bo'sh gap turadi)
-  const [sentences, setSentences] = useState([
-    { original: '', translation: '' }
-  ]);
+  const [sentences, setSentences] = useState([{ original: '', translation: '' }]);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  // Yangi bo'sh qator qo'shish
-  const addSentenceField = () => {
-    setSentences([...sentences, { original: '', translation: '' }]);
-  };
+  useEffect(() => {
+    const fetchResults = async () => {
+      const q = query(collection(db, "results"), orderBy("date", "desc"));
+      const snap = await getDocs(q);
+      setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    };
+    fetchResults();
+  }, []);
 
-  // Yozilayotgan gaplarni o'zgartirish
-  const handleSentenceChange = (index, field, value) => {
-    const newSentences = [...sentences];
-    newSentences[index][field] = value;
-    setSentences(newSentences);
-  };
-
-  // Bazaga saqlash
   const saveLesson = async () => {
-    if (!title.trim()) return alert("Mavzu nomini yozing!");
-    
+    if (!title) return alert("Nom yozing");
     setLoading(true);
-    try {
-      // 1. Bazaning 'assignments' kolleksiyasiga yozamiz
-      await addDoc(collection(db, "assignments"), {
-        title: title,
-        sentences: sentences,
-        createdAt: serverTimestamp(), // Qachon yaratilgani vaqti
-        isActive: true
-      });
-
-      // 2. Muvaffaqiyatli bo'lsa tozalaymiz
-      alert("✅ Dars muvaffaqiyatli saqlandi!");
-      setTitle('');
-      setSentences([{ original: '', translation: '' }]);
-    } catch (error) {
-      console.error("Xatolik:", error);
-      alert("❌ Saqlashda xatolik: " + error.message);
-    }
+    await addDoc(collection(db, "assignments"), { title, sentences, createdAt: serverTimestamp() });
+    alert("Saqlandi!");
+    setTitle(''); setSentences([{ original: '', translation: '' }]);
     setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8">
-      <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-md p-8">
-        <h1 className="text-2xl font-bold text-gray-800 mb-6">Yangi Dars Yaratish 📝</h1>
+    <div className="min-h-screen bg-gray-100 p-4 md:p-10 space-y-10">
+      {/* 1. Dars Yaratish */}
+      <div className="max-w-4xl mx-auto bg-white p-6 rounded-2xl shadow-sm">
+        <h2 className="text-2xl font-bold mb-6">Yangi Dars Qo'shish 📝</h2>
+        <input 
+          type="text" placeholder="Dars mavzusi" value={title}
+          onChange={e => setTitle(e.target.value)}
+          className="w-full p-3 border rounded-xl mb-4 outline-none focus:ring-2 ring-blue-500"
+        />
+        {sentences.map((s, i) => (
+          <div key={i} className="flex gap-2 mb-2">
+            <input placeholder="English" className="flex-1 p-2 border rounded-lg" value={s.original} onChange={e => {
+              const newS = [...sentences]; newS[i].original = e.target.value; setSentences(newS);
+            }} />
+            <input placeholder="Uzbek" className="flex-1 p-2 border rounded-lg" value={s.translation} onChange={e => {
+              const newS = [...sentences]; newS[i].translation = e.target.value; setSentences(newS);
+            }} />
+          </div>
+        ))}
+        <button onClick={() => setSentences([...sentences, {original: '', translation: ''}])} className="text-blue-500 font-bold mr-4">+ Gap qo'shish</button>
+        <button onClick={saveLesson} disabled={loading} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold">Saqlash</button>
+      </div>
 
-        {/* Mavzu nomi */}
-        <div className="mb-6">
-          <label className="block text-gray-700 font-bold mb-2">Mavzu nomi</label>
-          <input 
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Masalan: Present Simple - Kun tartibi"
-            className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
-          />
+      {/* 2. Natijalar Jadvali */}
+      <div className="max-w-4xl mx-auto bg-white p-6 rounded-2xl shadow-sm">
+        <h2 className="text-2xl font-bold mb-6">O'quvchilar Natijalari 📈</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b">
+                <th className="p-3">O'quvchi</th>
+                <th className="p-3">Dars</th>
+                <th className="p-3">Ball</th>
+                <th className="p-3">Sana</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map(r => (
+                <tr key={r.id} className="border-b text-sm">
+                  <td className="p-3 font-medium">{r.studentName}</td>
+                  <td className="p-3 text-gray-500">{r.lessonTitle}</td>
+                  <td className="p-3 font-bold text-blue-600">{r.totalScore}/{r.maxScore}</td>
+                  <td className="p-3 text-gray-400">{r.date?.toDate().toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-
-        {/* Gaplar ro'yxati */}
-        <div className="space-y-4 mb-6">
-          <label className="block text-gray-700 font-bold">Gaplar va Tarjimalar</label>
-          
-          {sentences.map((item, index) => (
-            <div key={index} className="flex gap-4 items-start bg-gray-50 p-4 rounded-lg">
-              <span className="mt-3 font-bold text-gray-400">{index + 1}.</span>
-              
-              <div className="flex-1 space-y-2">
-                <input 
-                  type="text"
-                  placeholder="Inglizcha (Original)"
-                  value={item.original}
-                  onChange={(e) => handleSentenceChange(index, 'original', e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded focus:border-blue-500 outline-none"
-                />
-                <input 
-                  type="text"
-                  placeholder="O'zbekcha (To'g'ri javob)"
-                  value={item.translation}
-                  onChange={(e) => handleSentenceChange(index, 'translation', e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded focus:border-green-500 outline-none bg-green-50"
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Tugmalar */}
-        <div className="flex gap-4">
-          <button 
-            onClick={addSentenceField}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-semibold"
-          >
-            + Yana gap qo'shish
-          </button>
-
-          <button 
-            onClick={saveLesson}
-            disabled={loading}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-lg transition transform active:scale-95"
-          >
-            {loading ? "Saqlanmoqda..." : "💾 BAZAGA SAQLASH"}
-          </button>
-        </div>
-
       </div>
     </div>
   );

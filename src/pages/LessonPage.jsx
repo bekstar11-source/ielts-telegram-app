@@ -1,155 +1,95 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 
 const LessonPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-
-  // Holatlar (States)
   const [lesson, setLesson] = useState(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswer, setUserAnswer] = useState('');
-  
-  // AI javobi uchun holatlar
-  const [aiFeedback, setAiFeedback] = useState(null); // AI bahosi
-  const [isChecking, setIsChecking] = useState(false); // Tekshirish jarayoni
-  const [loading, setLoading] = useState(true); // Dars yuklanishi
+  const [aiFeedback, setAiFeedback] = useState(null);
+  const [isChecking, setIsChecking] = useState(false);
+  const [totalScore, setTotalScore] = useState(0);
 
-  // 1. Darsni bazadan yuklash
   useEffect(() => {
     const fetchLesson = async () => {
-      if (!id) return;
-      try {
-        const docRef = doc(db, "assignments", id);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setLesson(docSnap.data());
-        } else {
-          navigate('/');
-        }
-      } catch (error) {
-        console.error("Xato:", error);
-      } finally {
-        setLoading(false);
-      }
+      const docSnap = await getDoc(doc(db, "assignments", id));
+      if (docSnap.exists()) setLesson(docSnap.data());
     };
     fetchLesson();
-  }, [id, navigate]);
+  }, [id]);
 
-  // 2. AI ga yuborish (Eng muhim qism)
   const checkAnswer = async () => {
-    if (!userAnswer.trim()) return alert("Iltimos, tarjimani yozing!");
-    
+    if (!userAnswer.trim()) return;
     setIsChecking(true);
     try {
-      // Bizning serverga so'rov yuboramiz
       const response = await fetch('https://ielts-telegram-app.onrender.com/check-answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          original: lesson.sentences[currentIndex].original,
-          userAnswer: userAnswer,
-        })
+        body: JSON.stringify({ original: lesson.sentences[currentIndex].original, userAnswer })
       });
-
       const data = await response.json();
-      setAiFeedback(data); // AI javobini saqlab qo'yamiz
-
-    } catch (error) {
-      console.error("Server xatosi:", error);
-      alert("AI ishlamay qoldi. Server yoqilganmi?");
-    }
+      setAiFeedback(data);
+      setTotalScore(prev => prev + data.score);
+    } catch (error) { alert("Xatolik bo'ldi"); }
     setIsChecking(false);
   };
 
-  // 3. Keyingi gapga o'tish
-  const nextSentence = () => {
-    setAiFeedback(null); // Eski bahoni tozalash
-    setUserAnswer(''); // Inputni tozalash
-    
+  const nextSentence = async () => {
     if (currentIndex < lesson.sentences.length - 1) {
       setCurrentIndex(currentIndex + 1);
+      setAiFeedback(null);
+      setUserAnswer('');
     } else {
-      alert("Tabriklaymiz! Dars tugadi 🎉");
+      await addDoc(collection(db, "results"), {
+        studentName: localStorage.getItem('studentName'),
+        lessonTitle: lesson.title,
+        totalScore: totalScore,
+        maxScore: lesson.sentences.length * 5,
+        date: serverTimestamp()
+      });
+      alert(`Dars tugadi! Umumiy ballingiz: ${totalScore}`);
       navigate('/');
     }
   };
 
-  if (loading) return <div className="text-center p-10">Yuklanmoqda...</div>;
-  if (!lesson) return null;
-
-  const currentSentence = lesson.sentences[currentIndex];
+  if (!lesson) return <div className="p-10 text-center">Yuklanmoqda...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col pb-10">
-      {/* Progress Bar */}
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       <div className="bg-white p-4 shadow-sm flex items-center gap-4">
-        <button onClick={() => navigate('/')} className="text-gray-500 font-bold">←</button>
         <div className="flex-1 bg-gray-200 h-2 rounded-full overflow-hidden">
-          <div 
-            className="bg-blue-600 h-full transition-all duration-300"
-            style={{ width: `${((currentIndex) / lesson.sentences.length) * 100}%` }}
-          ></div>
+          <div className="bg-blue-600 h-full" style={{ width: `${(currentIndex / lesson.sentences.length) * 100}%` }}></div>
         </div>
-        <span className="text-sm font-bold text-gray-500">
-          {currentIndex + 1}/{lesson.sentences.length}
-        </span>
+        <span className="font-bold">{currentIndex + 1}/{lesson.sentences.length}</span>
       </div>
 
-      {/* Savol qismi */}
       <div className="flex-1 p-6 max-w-lg mx-auto w-full">
-        <div className="text-center mb-8">
-          <p className="text-gray-400 uppercase text-xs font-bold tracking-wider mb-2">Ingliz tilidan tarjima qiling</p>
-          <h2 className="text-2xl font-bold text-gray-800">"{currentSentence.original}"</h2>
-        </div>
-
-        {/* Javob yozish joyi */}
+        <h2 className="text-xl font-bold text-center mb-6">"{lesson.sentences[currentIndex].original}"</h2>
         <textarea
           value={userAnswer}
           onChange={(e) => setUserAnswer(e.target.value)}
+          disabled={!!aiFeedback}
+          className="w-full p-4 mb-4 h-32 rounded-xl border-2 border-blue-100 outline-none focus:border-blue-500"
           placeholder="Tarjimani yozing..."
-          disabled={!!aiFeedback} // Agar tekshirib bo'lingan bo'lsa, yozib bo'lmaydi
-          className="w-full p-4 mb-6 outline-none resize-none text-lg text-gray-800 h-32 rounded-xl border-2 border-blue-100 focus:border-blue-500"
         />
 
-        {/* AI Natijasi (Bu faqat tekshirgandan keyin chiqadi) */}
         {aiFeedback && (
-          <div className={`p-5 rounded-xl mb-6 ${aiFeedback.score >= 4 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-            <div className="flex justify-between items-center mb-2">
-              <span className="font-bold text-lg">
-                Baho: {aiFeedback.score}/5 {aiFeedback.score >= 4 ? '🌟' : '🤔'}
-              </span>
-            </div>
-            
-            <p className="text-gray-700 mb-2">
-              <strong>Izoh:</strong> {aiFeedback.feedback}
-            </p>
-            
-            {aiFeedback.correction && (
-              <div className="bg-white p-3 rounded-lg border border-gray-200 mt-2">
-                <p className="text-xs text-gray-500 font-bold uppercase">To'g'ri javob:</p>
-                <p className="text-gray-800 font-medium">{aiFeedback.correction}</p>
-              </div>
-            )}
+          <div className="p-4 bg-white rounded-xl border border-blue-200 mb-4 animate-in fade-in">
+            <p className="font-bold text-blue-600">Baho: {aiFeedback.score}/5</p>
+            <p className="text-sm text-gray-600 mt-1"><b>AI:</b> {aiFeedback.feedback}</p>
+            <p className="text-sm text-green-600 mt-2 font-medium">To'g'ri: {aiFeedback.correction}</p>
           </div>
         )}
 
-        {/* Tugmalar */}
         {!aiFeedback ? (
-          <button 
-            onClick={checkAnswer}
-            disabled={isChecking}
-            className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition disabled:opacity-50"
-          >
-            {isChecking ? "AI Tekshirmoqda... 🤖" : "TEKSHIRISH"}
+          <button onClick={checkAnswer} disabled={isChecking} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold">
+            {isChecking ? "AI tekshirmoqda..." : "TEKSHIRISH"}
           </button>
         ) : (
-          <button 
-            onClick={nextSentence}
-            className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition"
-          >
+          <button onClick={nextSentence} className="w-full bg-green-600 text-white py-4 rounded-xl font-bold">
             KEYINGI GAP →
           </button>
         )}
