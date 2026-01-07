@@ -23,7 +23,7 @@ app.use((req, res, next) => {
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-app.get('/', (req, res) => res.send('IELTS AI Examiner Server Active! ✅'));
+app.get('/', (req, res) => res.send('IELTS AI Examiner Server Active (STRICT MODE)! 👮‍♂️✅'));
 
 // 🔥 ASOSIY TEKSHIRISH ROUTE-I
 app.post('/check-quiz', async (req, res) => {
@@ -35,80 +35,104 @@ app.post('/check-quiz', async (req, res) => {
 
   let prompt = "";
   
-  // --- 1. IELTS WRITING (TASK 1 & TASK 2) UCHUN PROMPT ---
+  // --- 1. IELTS WRITING (TASK 1 & TASK 2) ---
   if (assignmentType === 'essay_task1' || assignmentType === 'essay_task2') {
-    const essayData = quizData[0]; // Essayda odatda 1 ta katta javob bo'ladi
+    const essayData = quizData[0];
     const isTask1 = assignmentType === 'essay_task1';
     
     prompt = `
-      Sen qattiqqo'l va professional IELTS Examiner'san. 
-      O'quvchi yozgan ${isTask1 ? "IELTS Writing Task 1 (Report)" : "IELTS Writing Task 2 (Essay)"} ni tekshir.
+      You are a STRICT IELTS EXAMINER. Grade this ${isTask1 ? "Task 1 Report" : "Task 2 Essay"}.
       
-      SAVOL/PROMPT: "${essayData.question}"
-      O'QUVCHI JAVOBI: "${essayData.userAnswer}"
+      QUESTION: "${essayData.question}"
+      STUDENT ANSWER: "${essayData.userAnswer}"
 
-      VAZIFANG:
-      Javobni quyidagi 4 ta rasmiy IELTS kriteriyasi bo'yicha tahlil qil.
-      Javob O'ZBEK tilida bo'lsin.
+      TASK:
+      Analyze based on 4 criteria: Task Response, Coherence, Lexical Resource, Grammatical Range.
+      Output language: UZBEK.
 
-      KRITERIYALAR:
-      1. **Task Response / Achievement:** ${isTask1 ? "Ma'lumotlar to'g'ri umumlashtirilganmi? Asosiy trendlar yozilganmi?" : "Mavzu to'liq ochilganmi? Argumentlar kuchlimi?"}
-      2. **Coherence & Cohesion:** Gaplar va paragraflar bog'liqligi. Linking words ishlatilishi.
-      3. **Lexical Resource:** So'z boyligi, akademik so'zlar, sinonimlar.
-      4. **Grammatical Range & Accuracy:** Grammatik xatolar va strukturalar xilma-xilligi.
+      GRADING RULES:
+      - Be strict. Do not give high scores easily.
+      - 7.0+ requires complex sentences and rare vocabulary used correctly.
+      - If grammar has frequent errors, score must be below 6.0.
 
-      Boshqa talablar:
-      - Har bir kriteriya uchun alohida qisqa izoh yoz.
-      - Umumiy Band Score (0-9) qo'y (masalan: 6.5).
-      - Eng jiddiy 3 ta xatoni va ularning to'g'ri variantini ko'rsat.
-
-      JAVOB FORMATI (JSON SHART):
+      OUTPUT JSON:
       {
         "results": [
           {
             "id": 0,
-            "score": 6.5,
-            "feedback": "🔹 **Task Response:** ...\\n🔹 **Coherence:** ...\\n🔹 **Vocabulary:** ...\\n🔹 **Grammar:** ...",
-            "correction": "1. Xato -> To'g'ri\\n2. Xato -> To'g'ri..."
+            "score": 6.0,
+            "feedback": "...", 
+            "correction": "..."
           }
         ]
       }
     `;
   } 
   
-  // --- 2. BOSHQA MASHQLAR (Translation, Gap Fill, Matching) ---
+  // --- 2. BOSHQA MASHQLAR (TRANSLATION, GAP FILL) - QATTIQQO'L REJIM 🔥 ---
   else {
     const isUzToEn = direction === 'uz-en';
     const targetLang = isUzToEn ? "INGLIZ TILI" : "O'ZBEK TILI";
+    const sourceLang = isUzToEn ? "O'ZBEK TILI" : "INGLIZ TILI";
     
-    const quizText = JSON.stringify(quizData.map((item, index) => ({
-      id: index,
+    // Ma'lumotlarni tayyorlash
+    const quizText = JSON.stringify(quizData.map((item) => ({
+      id: item.id || 0, // ID ni saqlab qolamiz
       savol: item.question,
-      ustoz_javobi: item.correctTranslation,
+      togri_javob: item.correctTranslation,
       oquvchi_javobi: item.userAnswer
     })));
 
     prompt = `
-      Sen IELTS o'qituvchisisan. Quyidagi "${assignmentType}" turidagi mashqni tekshir.
-      YO'NALISH: ${targetLang}ga.
+      Sen juda QATTIQQO'L (STRICT) til imtihonchisisan.
+      Vazifa: ${assignmentType} mashqini tekshirish.
+      Yo'nalish: ${sourceLang}dan ${targetLang}ga.
 
-      INPUT:
+      INPUT MA'LUMOTLARI:
       ${quizText}
 
-      BAHOLASH:
-      - 5 ball: To'liq to'g'ri.
-      - 4 ball: Kichik xato.
-      - 3 ball: Grammatik xato.
-      - 1-2 ball: Noto'g'ri.
+      BAHOLASH MEZONI (0 dan 5 gacha):
       
-      FEEDBACK:
-      - Qisqa va lo'nda bo'lsin.
-      - Agar xato bo'lsa, to'g'risini tushuntir.
+      🟢 5 Ball (Mukammal):
+      - Hech qanday xato yo'q (spelling, grammar, punctuation to'g'ri).
+      - Ma'no to'liq va tabiiy chiqqan.
+
+      🟡 4 Ball (Yaxshi):
+      - Ma'no to'g'ri.
+      - 1 ta kichik xato bor (masalan: artikl tushib qolgan yoki bitta harf xato).
+      - "I like apple" (apples bo'lishi kerak) -> 4 ball.
+
+      🟠 3 Ball (Qoniqarli - Grammatik xato):
+      - Ma'no tushunarli, lekin GRAMMATIK xato bor.
+      - Masalan: "He go to school" (goes bo'lishi kerak).
+      - Masalan: "I have seen him yesterday" (saw bo'lishi kerak).
+      - DIQQAT: Grammatik xato bo'lsa, maksimal 3 ball qo'yilsin!
+
+      🔴 2 Ball (Yomon):
+      - Ma'no buzilgan yoki gap qurilishi butunlay xato.
+      - Zamon (Tense) noto'g'ri ishlatilgan.
+
+      ⚫ 1 Ball (Juda yomon):
+      - So'zma-so'z tarjima qilingan, ma'no chiqmaydi.
+
+      ⚪ 0 Ball (Yo'q):
+      - Javob bo'sh yoki umuman aloqasiz.
+
+      QAT'IY QOIDALAR:
+      1. Agar o'quvchi javobi bo'sh bo'lsa: Score = 0, Feedback = "Javob yo'q", Correction = "".
+      2. Rag'batlantiruvchi so'zlar ("Yaxshi harakat", "Ofarin") KERAK EMAS.
+      3. Feedback qisqa va aniq bo'lsin: Faqat xatoni ko'rsat.
+      4. Javobni O'ZBEK tilida qaytar.
 
       JAVOB FORMATI (JSON):
       {
         "results": [
-          { "id": 0, "score": 0, "feedback": "...", "correction": "..." }
+          { 
+            "id": (inputdagi id), 
+            "score": (0-5), 
+            "feedback": "Xato: 'He go'. To'g'ri: 'He goes'.", 
+            "correction": "To'liq to'g'ri versiya" 
+          }
         ]
       }
     `;
@@ -117,21 +141,27 @@ app.post('/check-quiz', async (req, res) => {
   try {
     const completion = await openai.chat.completions.create({
       messages: [{ role: "system", content: prompt }],
-      model: "gpt-4o-mini",
+      model: "gpt-4o-mini", // Yoki gpt-3.5-turbo
       response_format: { type: "json_object" },
-      temperature: 0.2,
+      temperature: 0.1, // 0.1 - AI juda aniq va qat'iy bo'ladi (ijodkorlik o'chiriladi)
     });
 
-    let rawContent = completion.choices[0].message.content.replace(/```json/g, "").replace(/```/g, "").trim();
-    const parsedData = JSON.parse(rawContent);
+    let rawContent = completion.choices[0].message.content;
+    
+    // Ba'zan AI markdown qaytaradi, uni tozalaymiz
+    if (rawContent.startsWith('```json')) {
+        rawContent = rawContent.replace(/^```json/, '').replace(/```$/, '');
+    }
+    
+    const parsedData = JSON.parse(rawContent.trim());
 
     res.json(parsedData.results);
 
   } catch (error) {
-    console.error("AI Error:", error);
-    res.status(500).json({ error: error.message });
+    console.error("AI Server Error:", error);
+    res.status(500).json({ error: "Serverda xatolik yuz berdi." });
   }
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 AI Server ${PORT} da ishlayapti`));
+app.listen(PORT, () => console.log(`🚀 STRICT AI Server running on port ${PORT}`));
