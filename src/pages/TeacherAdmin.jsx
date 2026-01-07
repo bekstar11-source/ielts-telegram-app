@@ -27,6 +27,7 @@ const TeacherAdmin = () => {
   const [audioUrl, setAudioUrl] = useState('');
   const [segments, setSegments] = useState([]); 
   const [jsonInput, setJsonInput] = useState(''); 
+  const [customHints, setCustomHints] = useState(''); // 🔥 YANGI: HINTLAR
 
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -85,12 +86,11 @@ const TeacherAdmin = () => {
     }
   };
 
-  // 🔥 SAVE LESSON (TUZATILGAN VERSIYA)
+  // 🔥 SAVE LESSON
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
     setLoading(true);
 
-    // 1. Asosiy ma'lumotlar
     let lessonData = { 
         title: title || "No Title", 
         assignmentType: assignmentType || "translation", 
@@ -101,7 +101,6 @@ const TeacherAdmin = () => {
     
     if (!editingId) lessonData.createdAt = serverTimestamp(); 
 
-    // 2. Turlar bo'yicha ma'lumot (undefined bo'lmasligi shart)
     if (assignmentType === 'translation') {
         lessonData.sentences = sentences || [];
     }
@@ -128,10 +127,11 @@ const TeacherAdmin = () => {
     else if (assignmentType === 'dictation') {
         lessonData.audioUrl = audioUrl || ""; 
         lessonData.segments = segments || []; 
+        // 🔥 HINTLARNI SAQLASH
+        lessonData.customHints = customHints ? customHints.split(',').map(s => s.trim()).filter(s => s) : [];
     }
 
     try {
-      // 3. Tozalash (Eng muhim qadam)
       const cleanData = JSON.parse(JSON.stringify(lessonData));
 
       if (editingId) {
@@ -162,8 +162,11 @@ const TeacherAdmin = () => {
     if (lesson.matchingPairs) setMatchingPairs(lesson.matchingPairs);
     if (lesson.correctChoices) setCorrectChoices(lesson.correctChoices);
     
+    // Dictation Edit
     if (lesson.audioUrl) setAudioUrl(lesson.audioUrl);
     if (lesson.segments) setSegments(lesson.segments);
+    // 🔥 Hintlarni yuklash
+    if (lesson.customHints) setCustomHints(lesson.customHints.join(', '));
 
     setActiveTab('create'); 
     setIsSidebarOpen(false); 
@@ -173,16 +176,10 @@ const TeacherAdmin = () => {
     setTitle(''); setEditingId(null); setSentences([{ original: '', translation: '' }]);
     setEssayPrompt(''); setImageUrl(''); setGapFillText(''); setMatchingPairs([{ textA: '', textB: '' }]);
     setCorrectChoices('');
-    setAudioUrl(''); setSegments([]); setJsonInput('');
+    setAudioUrl(''); setSegments([]); setJsonInput(''); setCustomHints('');
   };
 
-  const deleteItem = async (col, id, refresh) => { 
-      if(window.confirm("Haqiqatan ham o'chirmoqchimisiz?")) { 
-          await deleteDoc(doc(db, col, id)); 
-          refresh(); 
-      } 
-  };
-
+  const deleteItem = async (col, id, refresh) => { if(window.confirm("Rostdan ham o'chirmoqchimisiz?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
   const addGroup = async () => { if (!newGroupName.trim()) return; await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() }); setNewGroupName(''); fetchGroups(); };
   const addStudent = async () => { if (!newStudentName || !newStudentPin) return alert("Xato"); await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() }); setNewStudentName(''); setNewStudentPin(''); fetchStudents(); };
   
@@ -308,6 +305,18 @@ const TeacherAdmin = () => {
                             <div className="space-y-4">
                                 <input value={audioUrl} onChange={e => setAudioUrl(e.target.value)} placeholder="Audio URL (GitHub Raw Link)..." className="w-full p-3 border rounded-xl"/>
                                 
+                                {/* 🔥 YANGI: HINTLAR INPUTI */}
+                                <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-200">
+                                    <label className="block text-xs font-bold text-yellow-800 mb-1">💡 Hintlar (Qiyin so'zlar / Ismlar):</label>
+                                    <input 
+                                        value={customHints} 
+                                        onChange={e => setCustomHints(e.target.value)}
+                                        placeholder="Tom, Oxford, London, Wednesday..."
+                                        className="w-full p-2 border rounded-lg text-sm"
+                                    />
+                                    <p className="text-[10px] text-gray-500 mt-1">Vergul bilan ajratib yozing.</p>
+                                </div>
+
                                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
                                     <div className="flex justify-between items-center mb-2">
                                         <label className="font-bold text-blue-800">JSON Kodni shu yerga tashlang:</label>
@@ -316,7 +325,7 @@ const TeacherAdmin = () => {
                                     <textarea 
                                         value={jsonInput} 
                                         onChange={e => setJsonInput(e.target.value)}
-                                        placeholder={`[\n  { "start": 0, "end": 5, "content": "Hello..." }\n]`}
+                                        placeholder={`[\n  { "start": 0, "end": 5, "text": "Hello..." }\n]`}
                                         className="w-full h-48 p-3 border rounded-xl font-mono text-xs"
                                     />
                                     <p className="text-xs text-gray-500 mt-1">Format: <code>const transcriptData = [...]</code> yoki shunchaki <code>[...]</code></p>
