@@ -33,6 +33,9 @@ const TeacherAdmin = () => {
   const [results, setResults] = useState([]);
   const [selectedResult, setSelectedResult] = useState(null);
 
+  // 🔥 YANGI STATE: Natijalar filtri uchun
+  const [selectedResultLesson, setSelectedResultLesson] = useState(null); // Qaysi darsni ko'ryapmiz?
+
   // New Student Inputs
   const [newGroupName, setNewGroupName] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
@@ -105,7 +108,6 @@ const TeacherAdmin = () => {
     setCorrectChoices('');
   };
 
-  // 🔥 O'CHIRISH FUNKSIYASI (Tiklandi)
   const deleteItem = async (col, id, refresh) => { 
       if(window.confirm("Haqiqatan ham o'chirmoqchimisiz?")) { 
           await deleteDoc(doc(db, col, id)); 
@@ -145,6 +147,19 @@ const TeacherAdmin = () => {
     XLSX.writeFile(wb, "Natijalar.xlsx");
   };
 
+  // --- RESULTS GROUPING LOGIC ---
+  const getUniqueLessons = () => {
+    // Natijalar ichidan unikal dars nomlarini yig'ib olish
+    const unique = {};
+    results.forEach(r => {
+        if (!unique[r.lessonTitle]) {
+            unique[r.lessonTitle] = { title: r.lessonTitle, count: 0, type: r.assignmentType };
+        }
+        unique[r.lessonTitle].count += 1;
+    });
+    return Object.values(unique);
+  };
+
   return (
     <div className="flex h-screen w-full bg-gray-100 font-sans overflow-hidden">
       
@@ -166,14 +181,13 @@ const TeacherAdmin = () => {
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
             <button onClick={() => { setActiveTab('create'); resetForm(); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'create' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📝 Yangi Dars</button>
-            <button onClick={() => { setActiveTab('archive'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'archive' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📂 Arxiv (Vazifalar)</button>
+            <button onClick={() => { setActiveTab('archive'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'archive' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📂 Arxiv</button>
             
-            {/* 🔥 ALOHIDA O'QUVCHI QO'SHISH PAGE */}
             <button onClick={() => { setActiveTab('add_student'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'add_student' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>➕ O'quvchi Qo'shish</button>
             
             <button onClick={() => { setActiveTab('students_list'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'students_list' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>👥 O'quvchilar Ro'yxati</button>
             
-            <button onClick={() => { setActiveTab('results'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'results' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📈 Natijalar</button>
+            <button onClick={() => { setActiveTab('results'); setSelectedResultLesson(null); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'results' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📈 Natijalar</button>
         </nav>
       </aside>
 
@@ -291,7 +305,7 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 2. ARCHIVE PAGE (Vazifalarni O'chirish qaytarildi) */}
+            {/* 2. ARCHIVE PAGE */}
             {activeTab === 'archive' && (
                 <div className="bg-white p-4 lg:p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-5xl mx-auto">
                     <h2 className="text-xl font-bold mb-4 text-slate-800">Arxiv (Vazifalar)</h2>
@@ -315,7 +329,6 @@ const TeacherAdmin = () => {
                                         <td className="p-3 text-xs text-gray-500">{lesson.createdAt?.toDate().toLocaleDateString()}</td>
                                         <td className="p-3 text-right flex justify-end gap-2">
                                             <button onClick={() => handleEdit(lesson)} className="bg-blue-100 text-blue-600 px-2 py-1 rounded text-xs font-bold hover:bg-blue-200">✎</button>
-                                            {/* 🔥 O'CHIRISH TUGMASI */}
                                             <button onClick={() => deleteItem("assignments", lesson.id, fetchAssignments)} className="bg-red-100 text-red-600 px-2 py-1 rounded text-xs font-bold hover:bg-red-200">🗑</button>
                                         </td>
                                     </tr>
@@ -326,7 +339,7 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 3. ALOHIDA: O'QUVCHI QO'SHISH (ADD STUDENT) */}
+            {/* 3. ADD STUDENT (ALOHIDA PAGE) */}
             {activeTab === 'add_student' && (
                 <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Groups Create */}
@@ -373,7 +386,7 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 4. STUDENTS LIST (Guruh bo'yicha) */}
+            {/* 4. STUDENTS LIST (GURUH BO'YICHA) */}
             {activeTab === 'students_list' && (
                 <div className="max-w-6xl mx-auto space-y-6">
                     <h2 className="text-2xl font-bold text-slate-800">O'quvchilar Ro'yxati</h2>
@@ -405,47 +418,75 @@ const TeacherAdmin = () => {
                             </div>
                         )
                     })}
-                    {/* Guruhsiz o'quvchilar uchun alohida blok */}
+                    {/* Guruhsizlar */}
                     {students.filter(s => !groups.some(g => g.name === s.group)).length > 0 && (
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-200">
-                            <h3 className="font-bold text-lg text-red-600 mb-3">Guruhsiz / O'chirilgan Guruhdagilar</h3>
-                            {/* Jadval xuddi yuqoridagidek... */}
+                            <h3 className="font-bold text-lg text-red-600 mb-3">Guruhsiz O'quvchilar</h3>
+                            {/* ... Jadval xuddi yuqoridagi kabi ... */}
                         </div>
                     )}
                 </div>
             )}
 
-            {/* 5. RESULTS PAGE */}
+            {/* 5. RESULTS PAGE (QAVATLI) */}
             {activeTab === 'results' && (
                 <div className="bg-white p-4 lg:p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-6xl mx-auto">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold text-slate-800">Natijalar</h2>
-                        <button onClick={exportToExcel} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold text-xs">Excel</button>
-                    </div>
-                    <div className="overflow-auto h-[600px] custom-scrollbar">
-                        <table className="w-full text-left min-w-[600px]">
-                            <thead className="bg-gray-50 border-b sticky top-0">
-                                <tr>
-                                    <th className="p-3 text-sm font-bold text-gray-500">O'quvchi</th>
-                                    <th className="p-3 text-sm font-bold text-gray-500">Guruh</th>
-                                    <th className="p-3 text-sm font-bold text-gray-500">Mavzu</th>
-                                    <th className="p-3 text-sm font-bold text-gray-500">Ball</th>
-                                    <th className="p-3 text-sm font-bold text-gray-500 text-right">Ko'rish</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y">
-                                {results.map(r => (
-                                    <tr key={r.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedResult(r)}>
-                                        <td className="p-3 text-sm font-bold text-slate-700">{r.studentName}</td>
-                                        <td className="p-3 text-xs font-bold text-gray-500 bg-gray-100 rounded w-fit px-2">{r.studentGroup || '-'}</td>
-                                        <td className="p-3 text-sm">{r.lessonTitle}</td>
-                                        <td className="p-3 text-sm font-bold text-blue-600">{r.totalScore}</td>
-                                        <td className="p-3 text-sm text-right">👁️</td>
-                                    </tr>
+                    
+                    {/* A) AGAR DARS TANLANMAGAN BO'LSA: Darslar ro'yxati (Papkalar) */}
+                    {!selectedResultLesson ? (
+                        <>
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-xl font-bold text-slate-800">Natijalar (Darslar Bo'yicha)</h2>
+                                <button onClick={exportToExcel} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold text-xs">Excel</button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {getUniqueLessons().map((item, index) => (
+                                    <div 
+                                        key={index} 
+                                        onClick={() => setSelectedResultLesson(item.title)}
+                                        className="bg-gray-50 p-6 rounded-2xl border border-gray-200 hover:border-blue-400 hover:shadow-md transition cursor-pointer flex flex-col items-center text-center"
+                                    >
+                                        <div className="text-4xl mb-2">📂</div>
+                                        <h3 className="font-bold text-slate-800">{item.title}</h3>
+                                        <span className="text-xs font-bold text-gray-400 uppercase mt-1">{item.type}</span>
+                                        <span className="mt-4 bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">
+                                            {item.count} ta natija
+                                        </span>
+                                    </div>
                                 ))}
-                            </tbody>
-                        </table>
-                    </div>
+                            </div>
+                        </>
+                    ) : (
+                        // B) AGAR DARS TANLANGAN BO'LSA: Shu dars o'quvchilari
+                        <>
+                            <div className="flex items-center gap-4 mb-6">
+                                <button onClick={() => setSelectedResultLesson(null)} className="text-slate-500 hover:text-blue-600 font-bold">← Ortga</button>
+                                <h2 className="text-xl font-bold text-blue-600">Natijalar: {selectedResultLesson}</h2>
+                            </div>
+                            <div className="overflow-auto h-[600px] custom-scrollbar">
+                                <table className="w-full text-left min-w-[600px]">
+                                    <thead className="bg-gray-50 border-b sticky top-0">
+                                        <tr>
+                                            <th className="p-3 text-sm font-bold text-gray-500">O'quvchi</th>
+                                            <th className="p-3 text-sm font-bold text-gray-500">Guruh</th>
+                                            <th className="p-3 text-sm font-bold text-gray-500">Ball</th>
+                                            <th className="p-3 text-sm font-bold text-gray-500 text-right">Ko'rish</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y">
+                                        {results.filter(r => r.lessonTitle === selectedResultLesson).map(r => (
+                                            <tr key={r.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedResult(r)}>
+                                                <td className="p-3 text-sm font-bold text-slate-700">{r.studentName}</td>
+                                                <td className="p-3 text-xs font-bold text-gray-500 bg-gray-100 rounded w-fit px-2">{r.studentGroup || '-'}</td>
+                                                <td className="p-3 text-sm font-bold text-blue-600">{r.totalScore}</td>
+                                                <td className="p-3 text-sm text-right">👁️</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
         </main>
@@ -466,8 +507,8 @@ const TeacherAdmin = () => {
                                 <span className="text-sm">#{idx+1} {item.question?.substring(0, 30)}...</span>
                                 <span className={item.score >= 5 ? 'text-green-600 text-xs' : 'text-red-500 text-xs'}>{item.score} Ball</span>
                             </div>
-                            <div className="bg-white p-2 border rounded-lg text-sm mb-2">{item.userAnswer}</div>
-                            <div className="bg-yellow-50 p-2 rounded-lg border-l-4 border-yellow-400 text-xs italic">{item.feedback}</div>
+                            <div className="bg-white p-2 border rounded-lg text-sm mb-2 whitespace-pre-wrap">{item.userAnswer}</div>
+                            <div className="bg-yellow-50 p-2 rounded-lg border-l-4 border-yellow-400 text-xs italic whitespace-pre-wrap">{item.feedback}</div>
                         </div>
                     ))}
                 </div>
