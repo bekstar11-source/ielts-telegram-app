@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // useRef qo'shildi
 import { db } from '../firebase';
 import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
@@ -16,11 +16,19 @@ const TeacherAdmin = () => {
   const [direction, setDirection] = useState('en-uz');
   const [targetGroup, setTargetGroup] = useState('all');
   
+  // Specific inputs
   const [imageUrl, setImageUrl] = useState('');
   const [essayPrompt, setEssayPrompt] = useState('');
   const [matchingPairs, setMatchingPairs] = useState([{ textA: '', textB: '' }]);
   const [gapFillText, setGapFillText] = useState('');
   const [correctChoices, setCorrectChoices] = useState('');
+
+  // 🔥 YANGI: DICTATION STATES
+  const [audioUrl, setAudioUrl] = useState('');
+  const [segments, setSegments] = useState([]); // [{start: 0, end: 2.5, text: ''}]
+  const [isRecordingSegments, setIsRecordingSegments] = useState(false); // Yozish rejimi
+  const [segmentStartTime, setSegmentStartTime] = useState(null); // Vaqtinchalik start vaqti
+  const audioRef = useRef(null); // Audio elementga ulanish uchun
 
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -32,9 +40,7 @@ const TeacherAdmin = () => {
   const [assignments, setAssignments] = useState([]); 
   const [results, setResults] = useState([]);
   const [selectedResult, setSelectedResult] = useState(null);
-
-  // 🔥 YANGI STATE: Natijalar filtri uchun
-  const [selectedResultLesson, setSelectedResultLesson] = useState(null); // Qaysi darsni ko'ryapmiz?
+  const [selectedResultLesson, setSelectedResultLesson] = useState(null);
 
   // New Student Inputs
   const [newGroupName, setNewGroupName] = useState('');
@@ -50,13 +56,44 @@ const TeacherAdmin = () => {
     fetchResults();
   }, []);
 
+  // 🔥 SPACE TUGMASINI ESHITISH (Audio Segmentator uchun)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+        // Faqat Recording rejimi yoqilgan bo'lsa va Space bosilsa
+        if (isRecordingSegments && e.code === 'Space') {
+            e.preventDefault(); // Sahifa pastga tushib ketmasligi uchun
+            
+            if (!audioRef.current) return;
+            const currentTime = audioRef.current.currentTime;
+
+            if (segmentStartTime === null) {
+                // 1-bosish: START
+                setSegmentStartTime(currentTime);
+            } else {
+                // 2-bosish: END va Saqlash
+                const newSegment = {
+                    start: parseFloat(segmentStartTime.toFixed(2)),
+                    end: parseFloat(currentTime.toFixed(2)),
+                    text: "" // Matnni keyin yozadi
+                };
+                setSegments(prev => [...prev, newSegment]);
+                setSegmentStartTime(null); // Reset
+            }
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isRecordingSegments, segmentStartTime]);
+
+
   // --- FETCHERS ---
   const fetchGroups = async () => { try { const q = query(collection(db, "groups"), orderBy("createdAt", "desc")); const snap = await getDocs(q); setGroups(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
   const fetchStudents = async () => { try { const q = query(collection(db, "users"), orderBy("name", "asc")); const snap = await getDocs(q); setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
   const fetchAssignments = async () => { try { const q = query(collection(db, "assignments"), orderBy("createdAt", "desc")); const snap = await getDocs(q); setAssignments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
   const fetchResults = async () => { try { const q = query(collection(db, "results"), orderBy("date", "desc")); const snap = await getDocs(q); setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
 
-  // --- ACTIONS ---
+  // --- SAVE ACTIONS ---
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
     setLoading(true);
@@ -72,6 +109,11 @@ const TeacherAdmin = () => {
     else if (assignmentType === 'multiple_choice') {
         lessonData.sentences = sentences.map(s => ({...s, choices: s.choices ? (typeof s.choices === 'string' ? s.choices.split(',') : s.choices) : []}));
         lessonData.correctChoices = correctChoices;
+    } 
+    // 🔥 DICTATION DATA
+    else if (assignmentType === 'dictation') {
+        lessonData.audioUrl = audioUrl;
+        lessonData.segments = segments;
     }
 
     try {
@@ -98,6 +140,11 @@ const TeacherAdmin = () => {
     if (lesson.gapFillText) setGapFillText(lesson.gapFillText);
     if (lesson.matchingPairs) setMatchingPairs(lesson.matchingPairs);
     if (lesson.correctChoices) setCorrectChoices(lesson.correctChoices);
+    
+    // 🔥 Dictation Edit
+    if (lesson.audioUrl) setAudioUrl(lesson.audioUrl);
+    if (lesson.segments) setSegments(lesson.segments);
+
     setActiveTab('create'); 
     setIsSidebarOpen(false); 
   };
@@ -106,15 +153,10 @@ const TeacherAdmin = () => {
     setTitle(''); setEditingId(null); setSentences([{ original: '', translation: '' }]);
     setEssayPrompt(''); setImageUrl(''); setGapFillText(''); setMatchingPairs([{ textA: '', textB: '' }]);
     setCorrectChoices('');
+    setAudioUrl(''); setSegments([]); setSegmentStartTime(null); setIsRecordingSegments(false);
   };
 
-  const deleteItem = async (col, id, refresh) => { 
-      if(window.confirm("Haqiqatan ham o'chirmoqchimisiz?")) { 
-          await deleteDoc(doc(db, col, id)); 
-          refresh(); 
-      } 
-  };
-
+  const deleteItem = async (col, id, refresh) => { if(window.confirm("O'chiraymi?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
   const addGroup = async () => { if (!newGroupName.trim()) return; await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() }); setNewGroupName(''); fetchGroups(); };
   const addStudent = async () => { if (!newStudentName || !newStudentPin) return alert("Xato"); await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() }); setNewStudentName(''); setNewStudentPin(''); fetchStudents(); };
   
@@ -147,14 +189,10 @@ const TeacherAdmin = () => {
     XLSX.writeFile(wb, "Natijalar.xlsx");
   };
 
-  // --- RESULTS GROUPING LOGIC ---
   const getUniqueLessons = () => {
-    // Natijalar ichidan unikal dars nomlarini yig'ib olish
     const unique = {};
     results.forEach(r => {
-        if (!unique[r.lessonTitle]) {
-            unique[r.lessonTitle] = { title: r.lessonTitle, count: 0, type: r.assignmentType };
-        }
+        if (!unique[r.lessonTitle]) unique[r.lessonTitle] = { title: r.lessonTitle, count: 0, type: r.assignmentType };
         unique[r.lessonTitle].count += 1;
     });
     return Object.values(unique);
@@ -182,11 +220,8 @@ const TeacherAdmin = () => {
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
             <button onClick={() => { setActiveTab('create'); resetForm(); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'create' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📝 Yangi Dars</button>
             <button onClick={() => { setActiveTab('archive'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'archive' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📂 Arxiv</button>
-            
             <button onClick={() => { setActiveTab('add_student'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'add_student' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>➕ O'quvchi Qo'shish</button>
-            
             <button onClick={() => { setActiveTab('students_list'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'students_list' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>👥 O'quvchilar Ro'yxati</button>
-            
             <button onClick={() => { setActiveTab('results'); setSelectedResultLesson(null); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'results' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📈 Natijalar</button>
         </nav>
       </aside>
@@ -217,6 +252,7 @@ const TeacherAdmin = () => {
                         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu nomi..." className="w-full p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500 bg-gray-50"/>
                         <select value={assignmentType} onChange={e => setAssignmentType(e.target.value)} className="w-full p-3 border rounded-xl bg-purple-50 font-bold text-purple-800">
                             <option value="translation">Translation</option>
+                            <option value="dictation">🎧 Dictation (Diktant)</option> {/* 🔥 YANGI TYPE */}
                             <option value="essay_task1">Task 1 (Report)</option>
                             <option value="essay_task2">Task 2 (Essay)</option>
                             <option value="matching">Matching</option>
@@ -240,6 +276,68 @@ const TeacherAdmin = () => {
 
                     {/* DYNAMIC FORMS */}
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
+                        
+                        {/* 🔥 DICTATION SEGMENTATOR 🔥 */}
+                        {assignmentType === 'dictation' && (
+                            <div className="space-y-4">
+                                <div className="bg-blue-100 p-4 rounded-xl border border-blue-200 text-blue-800 text-sm">
+                                    <h4 className="font-bold mb-2">🎤 Qanday ishlatiladi?</h4>
+                                    <ol className="list-decimal pl-4 space-y-1">
+                                        <li>Audio URL ni qo'ying (GitHub .mp3?raw=true).</li>
+                                        <li><b>"🔴 Segmentlash"</b> tugmasini bosing (ramka qizaradi).</li>
+                                        <li>Audioni o'ynating (Play).</li>
+                                        <li>Gap boshlanganda <b>SPACE</b> ni bosing.</li>
+                                        <li>Gap tugaganda yana <b>SPACE</b> ni bosing (Yangi qator ochiladi).</li>
+                                        <li>Qatorlarga matnni yozib chiqing.</li>
+                                    </ol>
+                                </div>
+
+                                <input value={audioUrl} onChange={e => setAudioUrl(e.target.value)} placeholder="Audio URL (mp3)..." className="w-full p-3 border rounded-xl"/>
+                                
+                                <div className={`p-4 border-2 rounded-xl transition-colors ${isRecordingSegments ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'}`}>
+                                    <div className="flex items-center gap-4 mb-3">
+                                        <audio ref={audioRef} src={audioUrl} controls className="w-full" />
+                                        <button 
+                                            onClick={() => { setIsRecordingSegments(!isRecordingSegments); setSegmentStartTime(null); }}
+                                            className={`px-4 py-2 rounded-lg font-bold text-white whitespace-nowrap ${isRecordingSegments ? 'bg-red-600 animate-pulse' : 'bg-slate-800'}`}
+                                        >
+                                            {isRecordingSegments ? "🔴 STOP" : "⚫ Segmentlash"}
+                                        </button>
+                                    </div>
+                                    
+                                    {/* Segment Start Indicator */}
+                                    {segmentStartTime !== null && (
+                                        <div className="text-center text-red-600 font-bold animate-pulse mb-2">
+                                            Yozilmoqda... (Tugatish uchun SPACE bosing)
+                                        </div>
+                                    )}
+
+                                    {/* Segments List */}
+                                    <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
+                                        {segments.map((seg, i) => (
+                                            <div key={i} className="flex gap-2 items-center">
+                                                <div className="bg-gray-200 px-2 py-2 rounded text-xs font-mono font-bold w-24 text-center">
+                                                    {seg.start}s - {seg.end}s
+                                                </div>
+                                                <input 
+                                                    placeholder={`Jumla #${i+1} matni...`}
+                                                    className="flex-1 p-2 border rounded-lg text-sm"
+                                                    value={seg.text}
+                                                    onChange={(e) => {
+                                                        const newSegs = [...segments];
+                                                        newSegs[i].text = e.target.value;
+                                                        setSegments(newSegs);
+                                                    }}
+                                                />
+                                                <button onClick={() => setSegments(segments.filter((_, idx) => idx !== i))} className="text-red-500 font-bold px-2">×</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {segments.length === 0 && <p className="text-center text-gray-400 text-sm mt-2">Hali segmentlar yo'q.</p>}
+                                </div>
+                            </div>
+                        )}
+
                         {(assignmentType === 'translation' || assignmentType === 'matching') && (
                             <>
                                 <div className="flex gap-2 mb-4">
@@ -339,7 +437,7 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 3. ADD STUDENT (ALOHIDA PAGE) */}
+            {/* 3. ADD STUDENT */}
             {activeTab === 'add_student' && (
                 <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Groups Create */}
@@ -386,7 +484,7 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 4. STUDENTS LIST (GURUH BO'YICHA) */}
+            {/* 4. STUDENTS LIST */}
             {activeTab === 'students_list' && (
                 <div className="max-w-6xl mx-auto space-y-6">
                     <h2 className="text-2xl font-bold text-slate-800">O'quvchilar Ro'yxati</h2>
@@ -422,17 +520,16 @@ const TeacherAdmin = () => {
                     {students.filter(s => !groups.some(g => g.name === s.group)).length > 0 && (
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-200">
                             <h3 className="font-bold text-lg text-red-600 mb-3">Guruhsiz O'quvchilar</h3>
-                            {/* ... Jadval xuddi yuqoridagi kabi ... */}
+                            {/* Jadval xuddi yuqoridagidek... */}
                         </div>
                     )}
                 </div>
             )}
 
-            {/* 5. RESULTS PAGE (QAVATLI) */}
+            {/* 5. RESULTS PAGE (Papkali) */}
             {activeTab === 'results' && (
                 <div className="bg-white p-4 lg:p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-6xl mx-auto">
                     
-                    {/* A) AGAR DARS TANLANMAGAN BO'LSA: Darslar ro'yxati (Papkalar) */}
                     {!selectedResultLesson ? (
                         <>
                             <div className="flex justify-between items-center mb-6">
@@ -457,7 +554,6 @@ const TeacherAdmin = () => {
                             </div>
                         </>
                     ) : (
-                        // B) AGAR DARS TANLANGAN BO'LSA: Shu dars o'quvchilari
                         <>
                             <div className="flex items-center gap-4 mb-6">
                                 <button onClick={() => setSelectedResultLesson(null)} className="text-slate-500 hover:text-blue-600 font-bold">← Ortga</button>
