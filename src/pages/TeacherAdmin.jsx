@@ -27,7 +27,7 @@ const TeacherAdmin = () => {
   const [audioUrl, setAudioUrl] = useState('');
   const [segments, setSegments] = useState([]); 
   const [jsonInput, setJsonInput] = useState(''); 
-  const [customHints, setCustomHints] = useState(''); // 🔥 YANGI: HINTLAR
+  const [customHints, setCustomHints] = useState(''); // Hintlar uchun
 
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -86,7 +86,7 @@ const TeacherAdmin = () => {
     }
   };
 
-  // 🔥 SAVE LESSON
+  // 🔥 SAVE LESSON (XATOSIZ VERSIYA)
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
     setLoading(true);
@@ -127,7 +127,6 @@ const TeacherAdmin = () => {
     else if (assignmentType === 'dictation') {
         lessonData.audioUrl = audioUrl || ""; 
         lessonData.segments = segments || []; 
-        // 🔥 HINTLARNI SAQLASH
         lessonData.customHints = customHints ? customHints.split(',').map(s => s.trim()).filter(s => s) : [];
     }
 
@@ -165,7 +164,6 @@ const TeacherAdmin = () => {
     // Dictation Edit
     if (lesson.audioUrl) setAudioUrl(lesson.audioUrl);
     if (lesson.segments) setSegments(lesson.segments);
-    // 🔥 Hintlarni yuklash
     if (lesson.customHints) setCustomHints(lesson.customHints.join(', '));
 
     setActiveTab('create'); 
@@ -305,7 +303,7 @@ const TeacherAdmin = () => {
                             <div className="space-y-4">
                                 <input value={audioUrl} onChange={e => setAudioUrl(e.target.value)} placeholder="Audio URL (GitHub Raw Link)..." className="w-full p-3 border rounded-xl"/>
                                 
-                                {/* 🔥 YANGI: HINTLAR INPUTI */}
+                                {/* 🔥 HINTLAR INPUTI */}
                                 <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-200">
                                     <label className="block text-xs font-bold text-yellow-800 mb-1">💡 Hintlar (Qiyin so'zlar / Ismlar):</label>
                                     <input 
@@ -412,7 +410,7 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 2. ARCHIVE PAGE */}
+            {/* 2. ARCHIVE PAGE (Tuzatilgan) */}
             {activeTab === 'archive' && (
                 <div className="bg-white p-4 lg:p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-5xl mx-auto">
                     <h2 className="text-xl font-bold mb-4 text-slate-800">Arxiv (Vazifalar)</h2>
@@ -428,18 +426,25 @@ const TeacherAdmin = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
-                                {assignments.map((lesson) => (
-                                    <tr key={lesson.id} className="hover:bg-gray-50">
-                                        <td className="p-3 font-bold text-slate-700 text-sm">{lesson.title}</td>
-                                        <td className="p-3"><span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-bold">{lesson.targetGroup || 'All'}</span></td>
-                                        <td className="p-3 text-xs uppercase text-gray-400 font-bold">{lesson.assignmentType}</td>
-                                        <td className="p-3 text-xs text-gray-500">{lesson.createdAt?.toDate().toLocaleDateString()}</td>
-                                        <td className="p-3 text-right flex justify-end gap-2">
-                                            <button onClick={() => handleEdit(lesson)} className="bg-blue-100 text-blue-600 px-2 py-1 rounded text-xs font-bold hover:bg-blue-200">✎</button>
-                                            <button onClick={() => deleteItem("assignments", lesson.id, fetchAssignments)} className="bg-red-100 text-red-600 px-2 py-1 rounded text-xs font-bold hover:bg-red-200">🗑</button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {assignments.map((lesson) => {
+                                    const formatDate = (timestamp) => {
+                                        if (!timestamp) return "-";
+                                        if (timestamp.toDate) return timestamp.toDate().toLocaleDateString();
+                                        return new Date(timestamp).toLocaleDateString();
+                                    };
+                                    return (
+                                        <tr key={lesson.id} className="hover:bg-gray-50">
+                                            <td className="p-3 font-bold text-slate-700 text-sm">{lesson.title}</td>
+                                            <td className="p-3"><span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-bold">{lesson.targetGroup || 'All'}</span></td>
+                                            <td className="p-3 text-xs uppercase text-gray-400 font-bold">{lesson.assignmentType}</td>
+                                            <td className="p-3 text-xs text-gray-500">{formatDate(lesson.createdAt)}</td>
+                                            <td className="p-3 text-right flex justify-end gap-2">
+                                                <button onClick={() => handleEdit(lesson)} className="bg-blue-100 text-blue-600 px-2 py-1 rounded text-xs font-bold hover:bg-blue-200">✎</button>
+                                                <button onClick={() => deleteItem("assignments", lesson.id, fetchAssignments)} className="bg-red-100 text-red-600 px-2 py-1 rounded text-xs font-bold hover:bg-red-200">🗑</button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
