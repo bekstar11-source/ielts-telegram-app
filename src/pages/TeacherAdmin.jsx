@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
@@ -16,16 +16,17 @@ const TeacherAdmin = () => {
   const [direction, setDirection] = useState('en-uz');
   const [targetGroup, setTargetGroup] = useState('all');
   
+  // Specific inputs
   const [imageUrl, setImageUrl] = useState('');
   const [essayPrompt, setEssayPrompt] = useState('');
   const [matchingPairs, setMatchingPairs] = useState([{ textA: '', textB: '' }]);
   const [gapFillText, setGapFillText] = useState('');
   const [correctChoices, setCorrectChoices] = useState('');
 
-  // 🔥 YANGI: DICTATION STATES (Oddiy)
+  // 🔥 DICTATION STATES
   const [audioUrl, setAudioUrl] = useState('');
   const [segments, setSegments] = useState([]); 
-  const [jsonInput, setJsonInput] = useState(''); // Siz kodni shu yerga tashlaysiz
+  const [jsonInput, setJsonInput] = useState(''); 
 
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -62,30 +63,18 @@ const TeacherAdmin = () => {
   // --- ACTIONS ---
   const handleJsonImport = () => {
     try {
-        // Siz yuborgan format (const transcriptData = [...]) ni tozalab olamiz
         let cleanInput = jsonInput.trim();
-        
-        // Agar "const variable =" qismi bo'lsa olib tashlaymiz
-        if (cleanInput.includes('=')) {
-            cleanInput = cleanInput.substring(cleanInput.indexOf('=') + 1).trim();
-        }
-        // Oxiridagi nuqta-vergulni olib tashlaymiz
-        if (cleanInput.endsWith(';')) {
-            cleanInput = cleanInput.slice(0, -1);
-        }
+        if (cleanInput.includes('=')) cleanInput = cleanInput.substring(cleanInput.indexOf('=') + 1).trim();
+        if (cleanInput.endsWith(';')) cleanInput = cleanInput.slice(0, -1);
 
-        // JS Array stringini haqiqiy arrayga aylantiramiz
-        // (Bu usul non-strict JSON, ya'ni keylarga qo'shtirnoq qo'ymagan bo'lsangiz ham ishlaydi)
         const parsedData = new Function("return " + cleanInput)();
 
         if (Array.isArray(parsedData)) {
-            // Siz yuborgan "content" ni bizdagi "text" ga o'giramiz
             const formatted = parsedData.map(item => ({
                 start: item.start,
                 end: item.end,
-                text: item.content || item.text // Sizda 'content', bizda 'text'
+                text: item.content || item.text 
             }));
-            
             setSegments(formatted);
             alert(`Muvaffaqiyatli! ${formatted.length} ta jumla yuklandi ✅`);
         } else {
@@ -96,46 +85,76 @@ const TeacherAdmin = () => {
     }
   };
 
+  // 🔥 SAVE LESSON (TUZATILGAN VERSIYA)
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
     setLoading(true);
 
-    let lessonData = { title, assignmentType, direction, targetGroup, updatedAt: serverTimestamp() };
+    // 1. Asosiy ma'lumotlar
+    let lessonData = { 
+        title: title || "No Title", 
+        assignmentType: assignmentType || "translation", 
+        direction: direction || 'en-uz', 
+        targetGroup: targetGroup || 'all', 
+        updatedAt: serverTimestamp() 
+    };
+    
     if (!editingId) lessonData.createdAt = serverTimestamp(); 
 
-    if (assignmentType === 'translation') lessonData.sentences = sentences;
-    else if (assignmentType === 'essay_task1') { lessonData.essayPrompt = essayPrompt; lessonData.imageUrl = imageUrl; }
-    else if (assignmentType === 'essay_task2') { lessonData.essayPrompt = essayPrompt; }
-    else if (assignmentType === 'matching') { lessonData.matchingPairs = matchingPairs; }
-    else if (assignmentType === 'gap_fill') { lessonData.gapFillText = gapFillText; }
+    // 2. Turlar bo'yicha ma'lumot (undefined bo'lmasligi shart)
+    if (assignmentType === 'translation') {
+        lessonData.sentences = sentences || [];
+    }
+    else if (assignmentType === 'essay_task1') { 
+        lessonData.essayPrompt = essayPrompt || ""; 
+        lessonData.imageUrl = imageUrl || ""; 
+    }
+    else if (assignmentType === 'essay_task2') { 
+        lessonData.essayPrompt = essayPrompt || ""; 
+    }
+    else if (assignmentType === 'matching') { 
+        lessonData.matchingPairs = matchingPairs || []; 
+    }
+    else if (assignmentType === 'gap_fill') { 
+        lessonData.gapFillText = gapFillText || ""; 
+    }
     else if (assignmentType === 'multiple_choice') {
-        lessonData.sentences = sentences.map(s => ({...s, choices: s.choices ? (typeof s.choices === 'string' ? s.choices.split(',') : s.choices) : []}));
-        lessonData.correctChoices = correctChoices;
+        lessonData.sentences = sentences.map(s => ({
+            original: s.original || "",
+            choices: s.choices ? (typeof s.choices === 'string' ? s.choices.split(',') : s.choices) : []
+        }));
+        lessonData.correctChoices = correctChoices || "";
     } 
-    // 🔥 DICTATION SAVING
     else if (assignmentType === 'dictation') {
-        lessonData.audioUrl = audioUrl;
-        lessonData.segments = segments;
+        lessonData.audioUrl = audioUrl || ""; 
+        lessonData.segments = segments || []; 
     }
 
     try {
+      // 3. Tozalash (Eng muhim qadam)
+      const cleanData = JSON.parse(JSON.stringify(lessonData));
+
       if (editingId) {
-        await updateDoc(doc(db, "assignments", editingId), lessonData);
+        await updateDoc(doc(db, "assignments", editingId), cleanData);
         alert("Yangilandi! 🔄");
         setEditingId(null);
       } else {
-        await addDoc(collection(db, "assignments"), lessonData);
+        await addDoc(collection(db, "assignments"), cleanData);
         alert("Saqlandi! ✅");
       }
       resetForm();
       fetchAssignments(); 
-    } catch (e) { alert("Xato: " + e.message); }
+    } catch (e) { 
+        console.error("Firebase Xatosi:", e);
+        alert("Saqlashda xatolik: " + e.message); 
+    }
     setLoading(false);
   };
 
   const handleEdit = (lesson) => {
     setEditingId(lesson.id); setTitle(lesson.title); setAssignmentType(lesson.assignmentType);
     setDirection(lesson.direction || 'en-uz'); setTargetGroup(lesson.targetGroup || 'all');
+    
     if (lesson.sentences) setSentences(lesson.sentences);
     if (lesson.essayPrompt) setEssayPrompt(lesson.essayPrompt);
     if (lesson.imageUrl) setImageUrl(lesson.imageUrl);
@@ -143,7 +162,6 @@ const TeacherAdmin = () => {
     if (lesson.matchingPairs) setMatchingPairs(lesson.matchingPairs);
     if (lesson.correctChoices) setCorrectChoices(lesson.correctChoices);
     
-    // Dictation Edit
     if (lesson.audioUrl) setAudioUrl(lesson.audioUrl);
     if (lesson.segments) setSegments(lesson.segments);
 
@@ -158,7 +176,13 @@ const TeacherAdmin = () => {
     setAudioUrl(''); setSegments([]); setJsonInput('');
   };
 
-  const deleteItem = async (col, id, refresh) => { if(window.confirm("Haqiqatan ham o'chirmoqchimisiz?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
+  const deleteItem = async (col, id, refresh) => { 
+      if(window.confirm("Haqiqatan ham o'chirmoqchimisiz?")) { 
+          await deleteDoc(doc(db, col, id)); 
+          refresh(); 
+      } 
+  };
+
   const addGroup = async () => { if (!newGroupName.trim()) return; await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() }); setNewGroupName(''); fetchGroups(); };
   const addStudent = async () => { if (!newStudentName || !newStudentPin) return alert("Xato"); await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() }); setNewStudentName(''); setNewStudentPin(''); fetchStudents(); };
   
@@ -298,7 +322,6 @@ const TeacherAdmin = () => {
                                     <p className="text-xs text-gray-500 mt-1">Format: <code>const transcriptData = [...]</code> yoki shunchaki <code>[...]</code></p>
                                 </div>
 
-                                {/* Preview of imported segments */}
                                 {segments.length > 0 && (
                                     <div className="space-y-2 mt-4">
                                         <h4 className="font-bold text-green-700">Yuklangan jumlalar ({segments.length} ta):</h4>
@@ -315,7 +338,6 @@ const TeacherAdmin = () => {
                             </div>
                         )}
 
-                        {/* ... BOSHQA TYPE LAR ESKISI KABI QOLADI ... */}
                         {(assignmentType === 'translation' || assignmentType === 'matching') && (
                             <>
                                 <div className="flex gap-2 mb-4">
@@ -498,7 +520,24 @@ const TeacherAdmin = () => {
                     {students.filter(s => !groups.some(g => g.name === s.group)).length > 0 && (
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-200">
                             <h3 className="font-bold text-lg text-red-600 mb-3">Guruhsiz O'quvchilar</h3>
-                            {/* Jadval xuddi yuqoridagidek... */}
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="text-gray-400 bg-gray-50">
+                                        <tr><th className="p-2">Ism</th><th className="p-2">PIN</th><th className="p-2 text-right">Amal</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {students.filter(s => !groups.some(g => g.name === s.group)).map(s => (
+                                            <tr key={s.id} className="border-b hover:bg-gray-50">
+                                                <td className="p-2 font-medium">{s.name}</td>
+                                                <td className="p-2 font-mono text-gray-400">{s.pin}</td>
+                                                <td className="p-2 text-right">
+                                                    <button onClick={() => deleteItem("users", s.id, fetchStudents)} className="text-red-500 hover:text-red-700 font-bold">O'chirish</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
                 </div>
