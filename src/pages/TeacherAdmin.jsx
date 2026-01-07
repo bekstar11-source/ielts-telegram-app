@@ -4,9 +4,11 @@ import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, orderBy, query,
 import * as XLSX from 'xlsx';
 
 const TeacherAdmin = () => {
+  // 📱 MOBIL UCHUN STATE
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('create'); 
 
-  // --- STATE LAR ---
+  // --- FORM STATES ---
   const [editingId, setEditingId] = useState(null); 
   const [title, setTitle] = useState('');
   const [assignmentType, setAssignmentType] = useState('translation');
@@ -36,8 +38,6 @@ const TeacherAdmin = () => {
   const [newStudentName, setNewStudentName] = useState('');
   const [newStudentGroup, setNewStudentGroup] = useState('');
   const [newStudentPin, setNewStudentPin] = useState('');
-  
-  // 🔥 YANGI: Bulk Student Import
   const [bulkStudentText, setBulkStudentText] = useState('');
 
   useEffect(() => { 
@@ -53,7 +53,7 @@ const TeacherAdmin = () => {
   const fetchAssignments = async () => { try { const q = query(collection(db, "assignments"), orderBy("createdAt", "desc")); const snap = await getDocs(q); setAssignments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
   const fetchResults = async () => { try { const q = query(collection(db, "results"), orderBy("date", "desc")); const snap = await getDocs(q); setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
 
-  // --- SAVE LESSON ---
+  // --- ACTIONS ---
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
     setLoading(true);
@@ -96,6 +96,7 @@ const TeacherAdmin = () => {
     if (lesson.matchingPairs) setMatchingPairs(lesson.matchingPairs);
     if (lesson.correctChoices) setCorrectChoices(lesson.correctChoices);
     setActiveTab('create'); 
+    setIsSidebarOpen(false); // Mobilda menyuni yopish
   };
 
   const resetForm = () => {
@@ -106,50 +107,24 @@ const TeacherAdmin = () => {
 
   const deleteItem = async (col, id, refresh) => { if(window.confirm("O'chiraymi?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
   const addGroup = async () => { if (!newGroupName.trim()) return; await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() }); setNewGroupName(''); fetchGroups(); };
-  
-  // Single Student Add
   const addStudent = async () => { if (!newStudentName || !newStudentPin) return alert("Xato"); await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() }); setNewStudentName(''); setNewStudentPin(''); fetchStudents(); };
-
-  // 🔥 BULK STUDENT ADD (YANGI FUNKSIYA)
+  
   const addBulkStudents = async () => {
-    if (!newStudentGroup) return alert("Iltimos, avval guruhni tanlang!");
+    if (!newStudentGroup) return alert("Avval guruhni tanlang!");
     if (!bulkStudentText.trim()) return alert("Ro'yxat bo'sh!");
-
     setLoading(true);
     const lines = bulkStudentText.split('\n');
     const promises = [];
-
-    // Har bir qatorni aylanamiz
     for (let line of lines) {
         if (!line.trim()) continue;
-        
-        // Format: Ism Familiya | PIN (yoki shunchaki Ism)
-        // Split bo'yicha ajratamiz (pipe | yoki vergul ,)
         let [name, pin] = line.split(/[|,]/).map(item => item.trim());
-
         if (name) {
-            // Agar PIN yozilmagan bo'lsa, 4 xonali random pin beramiz
-            if (!pin) {
-                pin = Math.floor(1000 + Math.random() * 9000).toString();
-            }
-
-            promises.push(addDoc(collection(db, "users"), {
-                name: name,
-                group: newStudentGroup, // Tanlangan guruhga qo'shiladi
-                pin: pin,
-                createdAt: serverTimestamp()
-            }));
+            if (!pin) pin = Math.floor(1000 + Math.random() * 9000).toString();
+            promises.push(addDoc(collection(db, "users"), { name: name, group: newStudentGroup, pin: pin, createdAt: serverTimestamp() }));
         }
     }
-
-    try {
-        await Promise.all(promises);
-        alert(`${promises.length} ta o'quvchi qo'shildi! ✅`);
-        setBulkStudentText('');
-        fetchStudents();
-    } catch (error) {
-        alert("Xatolik: " + error.message);
-    }
+    try { await Promise.all(promises); alert(`${promises.length} ta o'quvchi qo'shildi!`); setBulkStudentText(''); fetchStudents(); } 
+    catch (error) { alert("Xato: " + error.message); }
     setLoading(false);
   };
 
@@ -163,63 +138,88 @@ const TeacherAdmin = () => {
     XLSX.writeFile(wb, "Natijalar.xlsx");
   };
 
+  // 🔥 YANGILANGAN LAYOUT (Mobile Friendly + Desktop Fixed)
   return (
-    <div className="flex w-full h-screen bg-gray-100 font-sans overflow-hidden">
+    <div className="flex h-screen w-full bg-gray-100 font-sans overflow-hidden">
       
-      {/* SIDEBAR (Responsive) */}
-      <div className="w-64 flex-shrink-0 bg-slate-900 text-white flex flex-col h-full shadow-2xl z-50">
-        <div className="p-6 border-b border-slate-800">
-            <h1 className="text-2xl font-bold text-center text-blue-400">Admin Panel</h1>
-            <p className="text-xs text-center text-slate-500 mt-1">v3.1 Bulk Add</p>
+      {/* 🌑 OVERLAY (Mobil menyu ochilganda) */}
+      {isSidebarOpen && (
+        <div 
+            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+        ></div>
+      )}
+
+      {/* 🖥️ SIDEBAR */}
+      <aside className={`
+          fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white shadow-xl transform transition-transform duration-300 ease-in-out
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          lg:static lg:translate-x-0 lg:flex-shrink-0
+      `}>
+        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+            <h1 className="text-2xl font-bold text-blue-400">Admin</h1>
+            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden text-2xl text-gray-400">×</button>
         </div>
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-            <button onClick={() => { setActiveTab('create'); resetForm(); }} className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === 'create' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
-                📝 Yangi Dars
-            </button>
-            <button onClick={() => setActiveTab('archive')} className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === 'archive' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
-                📂 Arxiv
-            </button>
-            <button onClick={() => setActiveTab('students')} className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === 'students' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
-                👥 O'quvchilar
-            </button>
-            <button onClick={() => setActiveTab('results')} className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === 'results' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
-                📈 Natijalar
-            </button>
+            {[
+                { id: 'create', label: '📝 Yangi Dars' },
+                { id: 'archive', label: '📂 Arxiv' },
+                { id: 'students', label: '👥 O\'quvchilar' },
+                { id: 'results', label: '📈 Natijalar' }
+            ].map(menu => (
+                <button 
+                    key={menu.id}
+                    onClick={() => { setActiveTab(menu.id); if(menu.id==='create') resetForm(); setIsSidebarOpen(false); }} 
+                    className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === menu.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+                >
+                    {menu.label}
+                </button>
+            ))}
         </nav>
-      </div>
+      </aside>
 
-      {/* MAIN CONTENT */}
-      <div className="flex-1 h-full overflow-hidden bg-gray-50 flex flex-col relative">
-        <div className="flex-1 overflow-y-auto p-8 w-full">
+      {/* MAIN CONTENT AREA */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50 relative w-full">
+        
+        {/* 📱 MOBILE HEADER */}
+        <header className="bg-white border-b p-4 flex items-center justify-between lg:hidden shadow-sm z-30">
+            <span className="font-bold text-slate-800 text-lg">IELTS Admin</span>
+            <button onClick={() => setIsSidebarOpen(true)} className="p-2 rounded-md hover:bg-gray-100">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+        </header>
+
+        {/* SCROLLABLE CONTENT */}
+        <main className="flex-1 overflow-y-auto p-4 lg:p-8 w-full">
             
             {/* 1. CREATE PAGE */}
             {activeTab === 'create' && (
-                <div className="max-w-5xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 w-full max-w-4xl mx-auto">
                      <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-2xl font-bold text-slate-800">{editingId ? "Darsni Tahrirlash ✏️" : "Yangi Dars Yaratish ➕"}</h2>
+                        <h2 className="text-xl font-bold text-slate-800">{editingId ? "Tahrirlash ✏️" : "Yangi Dars ➕"}</h2>
                         {editingId && <button onClick={resetForm} className="text-red-500 text-sm underline">Bekor qilish</button>}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 mb-4">
-                        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu nomi..." className="p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500 bg-gray-50"/>
-                        <select value={assignmentType} onChange={e => setAssignmentType(e.target.value)} className="p-3 border rounded-xl bg-purple-50 font-bold text-purple-800">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu nomi..." className="w-full p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500 bg-gray-50"/>
+                        <select value={assignmentType} onChange={e => setAssignmentType(e.target.value)} className="w-full p-3 border rounded-xl bg-purple-50 font-bold text-purple-800">
                             <option value="translation">Translation</option>
-                            <option value="essay_task1">IELTS Task 1</option>
-                            <option value="essay_task2">IELTS Task 2</option>
+                            <option value="essay_task1">Task 1 (Report)</option>
+                            <option value="essay_task2">Task 2 (Essay)</option>
                             <option value="matching">Matching</option>
                             <option value="gap_fill">Gap Filling</option>
                             <option value="multiple_choice">Multiple Choice</option>
                         </select>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 mb-6">
-                        <select value={targetGroup} onChange={e => setTargetGroup(e.target.value)} className="p-3 border rounded-xl bg-yellow-50 font-bold text-yellow-800">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <select value={targetGroup} onChange={e => setTargetGroup(e.target.value)} className="w-full p-3 border rounded-xl bg-yellow-50 font-bold text-yellow-800">
                             <option value="all">🌍 Barcha Guruhlar</option>
                             {groups.map(g => <option key={g.id} value={g.name}>{g.name}</option>)}
                         </select>
                         {assignmentType === 'translation' && (
-                            <select value={direction} onChange={e => setDirection(e.target.value)} className="p-3 border rounded-xl bg-blue-50 text-blue-800 font-bold">
+                            <select value={direction} onChange={e => setDirection(e.target.value)} className="w-full p-3 border rounded-xl bg-blue-50 text-blue-800 font-bold">
                                 <option value="en-uz">🇬🇧 -> 🇺🇿</option>
                                 <option value="uz-en">🇺🇿 -> 🇬🇧</option>
                             </select>
@@ -227,35 +227,35 @@ const TeacherAdmin = () => {
                     </div>
 
                     {/* DYNAMIC FORMS */}
-                    <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200 mb-6">
+                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
                         {(assignmentType === 'translation' || assignmentType === 'matching') && (
                             <>
                                 <div className="flex gap-2 mb-4">
-                                    <button onClick={() => setIsBulkMode(false)} className={`px-4 py-2 rounded-lg text-sm font-bold ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-400'}`}>Qatorma-qator</button>
-                                    <button onClick={() => setIsBulkMode(true)} className={`px-4 py-2 rounded-lg text-sm font-bold ${isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-400'}`}>Tezkor (Paste)</button>
+                                    <button onClick={() => setIsBulkMode(false)} className={`flex-1 py-2 rounded-lg text-sm font-bold ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-400'}`}>Qator</button>
+                                    <button onClick={() => setIsBulkMode(true)} className={`flex-1 py-2 rounded-lg text-sm font-bold ${isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-400'}`}>Tezkor</button>
                                 </div>
                                 {!isBulkMode ? (
                                     <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
                                         {(assignmentType==='matching'?matchingPairs:sentences).map((s, i) => (
                                             <div key={i} className="flex gap-2">
-                                                <input placeholder={assignmentType==='matching'?"A":"Original"} className="flex-1 p-2 border rounded-lg" value={assignmentType==='matching'?s.textA:s.original} onChange={e => {
+                                                <input placeholder="Orig" className="flex-1 p-2 border rounded-lg min-w-0" value={assignmentType==='matching'?s.textA:s.original} onChange={e => {
                                                     const list = assignmentType==='matching'?[...matchingPairs]:[...sentences];
                                                     if(assignmentType==='matching') list[i].textA=e.target.value; else list[i].original=e.target.value;
                                                     assignmentType==='matching'?setMatchingPairs(list):setSentences(list);
                                                 }}/>
-                                                <input placeholder={assignmentType==='matching'?"B":"Tarjima"} className="flex-1 p-2 border rounded-lg" value={assignmentType==='matching'?s.textB:s.translation} onChange={e => {
+                                                <input placeholder="Trans" className="flex-1 p-2 border rounded-lg min-w-0" value={assignmentType==='matching'?s.textB:s.translation} onChange={e => {
                                                     const list = assignmentType==='matching'?[...matchingPairs]:[...sentences];
                                                     if(assignmentType==='matching') list[i].textB=e.target.value; else list[i].translation=e.target.value;
                                                     assignmentType==='matching'?setMatchingPairs(list):setSentences(list);
                                                 }}/>
                                             </div>
                                         ))}
-                                        <button onClick={() => assignmentType==='matching'?setMatchingPairs([...matchingPairs, {textA:'',textB:''}]):setSentences([...sentences, {original:'',translation:''}])} className="text-blue-600 font-bold text-sm">+ Qo'shish</button>
+                                        <button onClick={() => assignmentType==='matching'?setMatchingPairs([...matchingPairs, {textA:'',textB:''}]):setSentences([...sentences, {original:'',translation:''}])} className="text-blue-600 font-bold text-sm mt-2">+ Qo'shish</button>
                                     </div>
                                 ) : (
                                     <div>
-                                        <textarea value={bulkText} onChange={e => setBulkText(e.target.value)} className="w-full h-32 p-3 border rounded-xl" placeholder="Apple | Olma"/>
-                                        <button onClick={processBulkText} className="text-blue-600 font-bold mt-2">Formatlash</button>
+                                        <textarea value={bulkText} onChange={e => setBulkText(e.target.value)} className="w-full h-32 p-3 border rounded-xl text-sm" placeholder="Apple | Olma"/>
+                                        <button onClick={processBulkText} className="text-blue-600 font-bold mt-2 text-sm">Formatlash</button>
                                     </div>
                                 )}
                             </>
@@ -287,7 +287,7 @@ const TeacherAdmin = () => {
                         )}
                     </div>
 
-                    <button onClick={saveLesson} disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-black transition">
+                    <button onClick={saveLesson} disabled={loading} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-black transition">
                         {loading ? "Saqlanmoqda..." : editingId ? "YANGILASH 🔄" : "SAQLASH ✅"}
                     </button>
                 </div>
@@ -295,29 +295,29 @@ const TeacherAdmin = () => {
 
             {/* 2. ARCHIVE PAGE */}
             {activeTab === 'archive' && (
-                <div className="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
-                    <h2 className="text-2xl font-bold mb-6 text-slate-800">Vazifalar Arxivi</h2>
+                <div className="bg-white p-4 lg:p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-5xl mx-auto">
+                    <h2 className="text-xl font-bold mb-4 text-slate-800">Arxiv</h2>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse min-w-[600px]">
                             <thead className="bg-gray-50 border-b">
                                 <tr>
-                                    <th className="p-4 font-bold text-gray-500">Mavzu</th>
-                                    <th className="p-4 font-bold text-gray-500">Guruh</th>
-                                    <th className="p-4 font-bold text-gray-500">Tur</th>
-                                    <th className="p-4 font-bold text-gray-500">Sana</th>
-                                    <th className="p-4 font-bold text-gray-500 text-right">Amal</th>
+                                    <th className="p-3 text-sm text-gray-500">Mavzu</th>
+                                    <th className="p-3 text-sm text-gray-500">Guruh</th>
+                                    <th className="p-3 text-sm text-gray-500">Tur</th>
+                                    <th className="p-3 text-sm text-gray-500">Sana</th>
+                                    <th className="p-3 text-sm text-gray-500 text-right">Amal</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
                                 {assignments.map((lesson) => (
-                                    <tr key={lesson.id} className="hover:bg-gray-50 transition">
-                                        <td className="p-4 font-bold text-slate-700">{lesson.title}</td>
-                                        <td className="p-4"><span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-bold">{lesson.targetGroup || 'All'}</span></td>
-                                        <td className="p-4 text-xs uppercase text-gray-400 font-bold">{lesson.assignmentType}</td>
-                                        <td className="p-4 text-sm text-gray-500">{lesson.createdAt?.toDate().toLocaleDateString()}</td>
-                                        <td className="p-4 text-right flex justify-end gap-2">
-                                            <button onClick={() => handleEdit(lesson)} className="bg-blue-100 text-blue-600 px-3 py-1 rounded-lg font-bold hover:bg-blue-200">Edit</button>
-                                            <button onClick={() => deleteItem("assignments", lesson.id, fetchAssignments)} className="bg-red-100 text-red-600 px-3 py-1 rounded-lg font-bold hover:bg-red-200">Delete</button>
+                                    <tr key={lesson.id} className="hover:bg-gray-50">
+                                        <td className="p-3 font-bold text-slate-700 text-sm">{lesson.title}</td>
+                                        <td className="p-3"><span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-bold">{lesson.targetGroup || 'All'}</span></td>
+                                        <td className="p-3 text-xs uppercase text-gray-400 font-bold">{lesson.assignmentType}</td>
+                                        <td className="p-3 text-xs text-gray-500">{lesson.createdAt?.toDate().toLocaleDateString()}</td>
+                                        <td className="p-3 text-right flex justify-end gap-2">
+                                            <button onClick={() => handleEdit(lesson)} className="bg-blue-100 text-blue-600 px-2 py-1 rounded text-xs font-bold">✎</button>
+                                            <button onClick={() => deleteItem("assignments", lesson.id, fetchAssignments)} className="bg-red-100 text-red-600 px-2 py-1 rounded text-xs font-bold">×</button>
                                         </td>
                                     </tr>
                                 ))}
@@ -327,79 +327,64 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 3. STUDENTS PAGE (GURUHLAR VA O'QUVCHILAR) */}
+            {/* 3. STUDENTS PAGE */}
             {activeTab === 'students' && (
-                <div className="max-w-6xl mx-auto space-y-8">
-                    
-                    {/* GURUHLAR */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200">
-                        <h3 className="font-bold text-xl mb-4 text-slate-800">1. Guruhlar</h3>
+                <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Groups */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                        <h3 className="font-bold text-lg mb-4">Guruhlar</h3>
                         <div className="flex gap-2 mb-4">
-                            <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Yangi guruh nomi..." className="flex-1 p-3 border rounded-xl"/>
-                            <button onClick={addGroup} className="bg-slate-900 text-white px-6 rounded-xl font-bold">+ Qo'shish</button>
+                            <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Nomi..." className="flex-1 p-2 border rounded-lg text-sm"/>
+                            <button onClick={addGroup} className="bg-green-600 text-white px-4 rounded-lg font-bold text-sm">+</button>
                         </div>
                         <div className="flex flex-wrap gap-2">
                             {groups.map(g => (
-                                <span key={g.id} className="bg-blue-50 text-blue-800 border border-blue-100 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2">
-                                    {g.name} <button onClick={() => deleteItem("groups", g.id, fetchGroups)} className="text-red-400 hover:text-red-600">×</button>
+                                <span key={g.id} className="bg-gray-100 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                                    {g.name} <button onClick={() => deleteItem("groups", g.id, fetchGroups)} className="text-red-500 hover:text-red-700">×</button>
                                 </span>
                             ))}
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        
-                        {/* YAKKA O'QUVCHI QO'SHISH */}
-                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 h-fit">
-                            <h3 className="font-bold text-xl mb-4 text-slate-800">2. Bittalab Qo'shish</h3>
-                            <div className="space-y-3">
-                                <select value={newStudentGroup} onChange={e => setNewStudentGroup(e.target.value)} className="w-full p-3 border rounded-xl bg-gray-50">
-                                    <option value="">Guruhni tanlang...</option>
-                                    {groups.map(g=><option key={g.id} value={g.name}>{g.name}</option>)}
-                                </select>
-                                <input value={newStudentName} onChange={e => setNewStudentName(e.target.value)} placeholder="F.I.SH" className="w-full p-3 border rounded-xl"/>
-                                <input value={newStudentPin} onChange={e => setNewStudentPin(e.target.value)} placeholder="PIN (masalan: 1234)" type="number" className="w-full p-3 border rounded-xl"/>
-                                <button onClick={addStudent} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-green-700">Qo'shish</button>
-                            </div>
+                    {/* Single Add */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                        <h3 className="font-bold text-lg mb-4">Bittalab Qo'shish</h3>
+                        <div className="space-y-3">
+                            <select value={newStudentGroup} onChange={e => setNewStudentGroup(e.target.value)} className="w-full p-2 border rounded-lg text-sm"><option value="">Guruh...</option>{groups.map(g=><option key={g.id} value={g.name}>{g.name}</option>)}</select>
+                            <input value={newStudentName} onChange={e => setNewStudentName(e.target.value)} placeholder="Ism" className="w-full p-2 border rounded-lg text-sm"/>
+                            <input value={newStudentPin} onChange={e => setNewStudentPin(e.target.value)} placeholder="PIN" type="number" className="w-full p-2 border rounded-lg text-sm"/>
+                            <button onClick={addStudent} className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold text-sm">Qo'shish</button>
                         </div>
-
-                        {/* 🔥 BULK IMPORT (OMMAVIY QO'SHISH) */}
-                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 h-fit">
-                            <h3 className="font-bold text-xl mb-4 text-slate-800">3. Ommaviy Qo'shish (Bulk)</h3>
-                            <div className="space-y-3">
-                                <div className="text-xs text-gray-500 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                                    <b>Format:</b> Har bir qatorda bitta o'quvchi.<br/>
-                                    <code>Ali Valiyev | 1234</code> yoki shunchaki <code>Ali Valiyev</code> (PIN avtomatik)
-                                </div>
-                                <textarea 
-                                    value={bulkStudentText} 
-                                    onChange={e => setBulkStudentText(e.target.value)} 
-                                    placeholder="Ism Familiya | PIN&#10;Vali Aliyev | 5678&#10;G'ani G'aniyev"
-                                    className="w-full h-40 p-3 border rounded-xl text-sm"
-                                />
-                                <button onClick={addBulkStudents} disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg hover:bg-blue-700">
-                                    {loading ? "Qo'shilmoqda..." : "Bulk Qo'shish 🚀"}
-                                </button>
-                            </div>
-                        </div>
-
                     </div>
 
-                    {/* O'QUVCHILAR RO'YXATI */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200">
-                        <h3 className="font-bold text-xl mb-4 text-slate-800">Barcha O'quvchilar ({students.length})</h3>
-                        <div className="h-96 overflow-y-auto border-t pt-2 custom-scrollbar">
-                            <table className="w-full text-sm">
-                                <thead className="text-left text-gray-400 bg-gray-50 sticky top-0">
-                                    <tr><th className="p-3">Ism</th><th className="p-3">Guruh</th><th className="p-3">PIN</th><th className="p-3">Amal</th></tr>
-                                </thead>
+                    {/* Bulk Add */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 lg:col-span-2">
+                        <h3 className="font-bold text-lg mb-4">Ommaviy (Bulk) Qo'shish</h3>
+                        <div className="text-xs text-gray-500 mb-2">Ism Familiya | PIN (yoki faqat Ism)</div>
+                        <textarea 
+                            value={bulkStudentText} 
+                            onChange={e => setBulkStudentText(e.target.value)} 
+                            placeholder="Vali Aliyev | 1234&#10;G'ani G'aniyev"
+                            className="w-full h-24 p-2 border rounded-lg text-sm mb-2"
+                        />
+                        <button onClick={addBulkStudents} disabled={loading} className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold text-sm w-full lg:w-auto">
+                            {loading ? "..." : "Bulk Qo'shish"}
+                        </button>
+                    </div>
+
+                    {/* Students List */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 lg:col-span-2">
+                        <h3 className="font-bold text-lg mb-4">O'quvchilar Ro'yxati</h3>
+                        <div className="h-64 overflow-y-auto border-t pt-2 custom-scrollbar">
+                            <table className="w-full text-sm text-left">
+                                <thead className="text-gray-400 bg-gray-50 sticky top-0"><tr><th className="p-2">Ism</th><th className="p-2">Guruh</th><th className="p-2">PIN</th><th className="p-2"></th></tr></thead>
                                 <tbody>
                                     {students.map(s => (
                                         <tr key={s.id} className="border-b hover:bg-gray-50">
-                                            <td className="p-3 font-medium">{s.name}</td>
-                                            <td className="p-3 font-bold text-blue-600">{s.group}</td>
-                                            <td className="p-3 font-mono text-gray-400">{s.pin}</td>
-                                            <td className="p-3 text-right"><button onClick={() => deleteItem("users", s.id, fetchStudents)} className="text-red-500 hover:text-red-700 font-bold">O'chirish</button></td>
+                                            <td className="p-2 font-medium">{s.name}</td>
+                                            <td className="p-2 text-blue-600 font-bold">{s.group}</td>
+                                            <td className="p-2 text-gray-400 font-mono">{s.pin}</td>
+                                            <td className="p-2 text-right"><button onClick={() => deleteItem("users", s.id, fetchStudents)} className="text-red-500">×</button></td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -411,30 +396,30 @@ const TeacherAdmin = () => {
 
             {/* 4. RESULTS PAGE */}
             {activeTab === 'results' && (
-                <div className="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
+                <div className="bg-white p-4 lg:p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-6xl mx-auto">
                     <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-2xl font-bold text-slate-800">Natijalar</h2>
-                        <button onClick={exportToExcel} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold">Excelga Yuklash</button>
+                        <h2 className="text-xl font-bold text-slate-800">Natijalar</h2>
+                        <button onClick={exportToExcel} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold text-xs">Excel</button>
                     </div>
                     <div className="overflow-auto h-[600px] custom-scrollbar">
-                        <table className="w-full text-left">
+                        <table className="w-full text-left min-w-[600px]">
                             <thead className="bg-gray-50 border-b sticky top-0">
                                 <tr>
-                                    <th className="p-4 font-bold text-gray-500">O'quvchi</th>
-                                    <th className="p-4 font-bold text-gray-500">Guruh</th>
-                                    <th className="p-4 font-bold text-gray-500">Mavzu</th>
-                                    <th className="p-4 font-bold text-gray-500">Ball</th>
-                                    <th className="p-4 font-bold text-gray-500 text-right">Ko'rish</th>
+                                    <th className="p-3 text-sm font-bold text-gray-500">O'quvchi</th>
+                                    <th className="p-3 text-sm font-bold text-gray-500">Guruh</th>
+                                    <th className="p-3 text-sm font-bold text-gray-500">Mavzu</th>
+                                    <th className="p-3 text-sm font-bold text-gray-500">Ball</th>
+                                    <th className="p-3 text-sm font-bold text-gray-500 text-right">Ko'rish</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
                                 {results.map(r => (
-                                    <tr key={r.id} className="hover:bg-gray-50 cursor-pointer transition" onClick={() => setSelectedResult(r)}>
-                                        <td className="p-4 font-bold text-slate-700">{r.studentName}</td>
-                                        <td className="p-4 text-xs font-bold text-gray-500 bg-gray-100 rounded w-fit px-2">{r.studentGroup || '-'}</td>
-                                        <td className="p-4 text-sm">{r.lessonTitle}</td>
-                                        <td className="p-4 font-bold text-blue-600">{r.totalScore}</td>
-                                        <td className="p-4 text-right">👁️</td>
+                                    <tr key={r.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedResult(r)}>
+                                        <td className="p-3 text-sm font-bold text-slate-700">{r.studentName}</td>
+                                        <td className="p-3 text-xs font-bold text-gray-500 bg-gray-100 rounded w-fit px-2">{r.studentGroup || '-'}</td>
+                                        <td className="p-3 text-sm">{r.lessonTitle}</td>
+                                        <td className="p-3 text-sm font-bold text-blue-600">{r.totalScore}</td>
+                                        <td className="p-3 text-sm text-right">👁️</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -442,39 +427,26 @@ const TeacherAdmin = () => {
                     </div>
                 </div>
             )}
-        </div>
+        </main>
       </div>
 
       {/* MODAL */}
       {selectedResult && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white w-full max-w-3xl rounded-2xl p-8 h-[85vh] overflow-y-auto shadow-2xl">
-                <div className="flex justify-between mb-6 border-b pb-4">
-                    <div>
-                        <h2 className="text-2xl font-bold text-slate-800">{selectedResult.studentName}</h2>
-                        <p className="text-slate-500">{selectedResult.lessonTitle} • {selectedResult.studentGroup}</p>
-                    </div>
-                    <button onClick={() => setSelectedResult(null)} className="text-4xl text-gray-300 hover:text-gray-500">&times;</button>
-                </div>
+            <div className="bg-white w-full max-w-3xl rounded-2xl p-6 h-[85vh] overflow-y-auto shadow-2xl relative">
+                <button onClick={() => setSelectedResult(null)} className="absolute top-4 right-4 text-3xl text-gray-400">&times;</button>
+                <h2 className="text-xl font-bold text-slate-800">{selectedResult.studentName}</h2>
+                <p className="text-sm text-slate-500 mb-6">{selectedResult.lessonTitle} • {selectedResult.studentGroup}</p>
+                
                 <div className="space-y-4">
                     {selectedResult.history?.map((item, idx) => (
-                        <div key={idx} className="p-6 bg-gray-50 rounded-2xl border border-gray-200">
-                            <div className="flex justify-between font-bold mb-3">
-                                <span className="text-slate-700">#{idx+1} {item.question?.substring(0, 50)}...</span>
-                                <span className={item.score >= 5 ? 'text-green-600 bg-green-100 px-2 py-1 rounded' : 'text-red-500 bg-red-100 px-2 py-1 rounded'}>
-                                    {item.score} Ball
-                                </span>
+                        <div key={idx} className="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                            <div className="flex justify-between font-bold mb-2">
+                                <span className="text-sm">#{idx+1} {item.question?.substring(0, 30)}...</span>
+                                <span className={item.score >= 5 ? 'text-green-600 text-xs' : 'text-red-500 text-xs'}>{item.score} Ball</span>
                             </div>
-                            
-                            <div className="mb-4">
-                                <p className="text-xs font-bold text-slate-400 uppercase mb-1">O'quvchi javobi:</p>
-                                <div className="bg-white p-3 border rounded-xl text-slate-800 whitespace-pre-wrap">{item.userAnswer}</div>
-                            </div>
-
-                            <div className="bg-yellow-50 p-4 rounded-xl border-l-4 border-yellow-400">
-                                <p className="text-xs font-bold text-yellow-800 uppercase mb-2">🤖 AI Feedback:</p>
-                                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{item.feedback}</p>
-                            </div>
+                            <div className="bg-white p-2 border rounded-lg text-sm mb-2">{item.userAnswer}</div>
+                            <div className="bg-yellow-50 p-2 rounded-lg border-l-4 border-yellow-400 text-xs italic">{item.feedback}</div>
                         </div>
                     ))}
                 </div>
