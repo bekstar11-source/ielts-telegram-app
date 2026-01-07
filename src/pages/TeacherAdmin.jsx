@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'; // useRef qo'shildi
+import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
@@ -16,19 +16,16 @@ const TeacherAdmin = () => {
   const [direction, setDirection] = useState('en-uz');
   const [targetGroup, setTargetGroup] = useState('all');
   
-  // Specific inputs
   const [imageUrl, setImageUrl] = useState('');
   const [essayPrompt, setEssayPrompt] = useState('');
   const [matchingPairs, setMatchingPairs] = useState([{ textA: '', textB: '' }]);
   const [gapFillText, setGapFillText] = useState('');
   const [correctChoices, setCorrectChoices] = useState('');
 
-  // 🔥 YANGI: DICTATION STATES
+  // 🔥 YANGI: DICTATION STATES (Oddiy)
   const [audioUrl, setAudioUrl] = useState('');
-  const [segments, setSegments] = useState([]); // [{start: 0, end: 2.5, text: ''}]
-  const [isRecordingSegments, setIsRecordingSegments] = useState(false); // Yozish rejimi
-  const [segmentStartTime, setSegmentStartTime] = useState(null); // Vaqtinchalik start vaqti
-  const audioRef = useRef(null); // Audio elementga ulanish uchun
+  const [segments, setSegments] = useState([]); 
+  const [jsonInput, setJsonInput] = useState(''); // Siz kodni shu yerga tashlaysiz
 
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -56,44 +53,49 @@ const TeacherAdmin = () => {
     fetchResults();
   }, []);
 
-  // 🔥 SPACE TUGMASINI ESHITISH (Audio Segmentator uchun)
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-        // Faqat Recording rejimi yoqilgan bo'lsa va Space bosilsa
-        if (isRecordingSegments && e.code === 'Space') {
-            e.preventDefault(); // Sahifa pastga tushib ketmasligi uchun
-            
-            if (!audioRef.current) return;
-            const currentTime = audioRef.current.currentTime;
-
-            if (segmentStartTime === null) {
-                // 1-bosish: START
-                setSegmentStartTime(currentTime);
-            } else {
-                // 2-bosish: END va Saqlash
-                const newSegment = {
-                    start: parseFloat(segmentStartTime.toFixed(2)),
-                    end: parseFloat(currentTime.toFixed(2)),
-                    text: "" // Matnni keyin yozadi
-                };
-                setSegments(prev => [...prev, newSegment]);
-                setSegmentStartTime(null); // Reset
-            }
-        }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isRecordingSegments, segmentStartTime]);
-
-
   // --- FETCHERS ---
   const fetchGroups = async () => { try { const q = query(collection(db, "groups"), orderBy("createdAt", "desc")); const snap = await getDocs(q); setGroups(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
   const fetchStudents = async () => { try { const q = query(collection(db, "users"), orderBy("name", "asc")); const snap = await getDocs(q); setStudents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
   const fetchAssignments = async () => { try { const q = query(collection(db, "assignments"), orderBy("createdAt", "desc")); const snap = await getDocs(q); setAssignments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
   const fetchResults = async () => { try { const q = query(collection(db, "results"), orderBy("date", "desc")); const snap = await getDocs(q); setResults(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))); } catch (e) { console.error(e); } };
 
-  // --- SAVE ACTIONS ---
+  // --- ACTIONS ---
+  const handleJsonImport = () => {
+    try {
+        // Siz yuborgan format (const transcriptData = [...]) ni tozalab olamiz
+        let cleanInput = jsonInput.trim();
+        
+        // Agar "const variable =" qismi bo'lsa olib tashlaymiz
+        if (cleanInput.includes('=')) {
+            cleanInput = cleanInput.substring(cleanInput.indexOf('=') + 1).trim();
+        }
+        // Oxiridagi nuqta-vergulni olib tashlaymiz
+        if (cleanInput.endsWith(';')) {
+            cleanInput = cleanInput.slice(0, -1);
+        }
+
+        // JS Array stringini haqiqiy arrayga aylantiramiz
+        // (Bu usul non-strict JSON, ya'ni keylarga qo'shtirnoq qo'ymagan bo'lsangiz ham ishlaydi)
+        const parsedData = new Function("return " + cleanInput)();
+
+        if (Array.isArray(parsedData)) {
+            // Siz yuborgan "content" ni bizdagi "text" ga o'giramiz
+            const formatted = parsedData.map(item => ({
+                start: item.start,
+                end: item.end,
+                text: item.content || item.text // Sizda 'content', bizda 'text'
+            }));
+            
+            setSegments(formatted);
+            alert(`Muvaffaqiyatli! ${formatted.length} ta jumla yuklandi ✅`);
+        } else {
+            alert("Xatolik: Kod array ko'rinishida emas.");
+        }
+    } catch (e) {
+        alert("Kodda xatolik bor! Formatni tekshiring.\n" + e.message);
+    }
+  };
+
   const saveLesson = async () => {
     if (!title) return alert("Mavzu yozilmadi!");
     setLoading(true);
@@ -110,7 +112,7 @@ const TeacherAdmin = () => {
         lessonData.sentences = sentences.map(s => ({...s, choices: s.choices ? (typeof s.choices === 'string' ? s.choices.split(',') : s.choices) : []}));
         lessonData.correctChoices = correctChoices;
     } 
-    // 🔥 DICTATION DATA
+    // 🔥 DICTATION SAVING
     else if (assignmentType === 'dictation') {
         lessonData.audioUrl = audioUrl;
         lessonData.segments = segments;
@@ -141,7 +143,7 @@ const TeacherAdmin = () => {
     if (lesson.matchingPairs) setMatchingPairs(lesson.matchingPairs);
     if (lesson.correctChoices) setCorrectChoices(lesson.correctChoices);
     
-    // 🔥 Dictation Edit
+    // Dictation Edit
     if (lesson.audioUrl) setAudioUrl(lesson.audioUrl);
     if (lesson.segments) setSegments(lesson.segments);
 
@@ -153,10 +155,10 @@ const TeacherAdmin = () => {
     setTitle(''); setEditingId(null); setSentences([{ original: '', translation: '' }]);
     setEssayPrompt(''); setImageUrl(''); setGapFillText(''); setMatchingPairs([{ textA: '', textB: '' }]);
     setCorrectChoices('');
-    setAudioUrl(''); setSegments([]); setSegmentStartTime(null); setIsRecordingSegments(false);
+    setAudioUrl(''); setSegments([]); setJsonInput('');
   };
 
-  const deleteItem = async (col, id, refresh) => { if(window.confirm("O'chiraymi?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
+  const deleteItem = async (col, id, refresh) => { if(window.confirm("Haqiqatan ham o'chirmoqchimisiz?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
   const addGroup = async () => { if (!newGroupName.trim()) return; await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() }); setNewGroupName(''); fetchGroups(); };
   const addStudent = async () => { if (!newStudentName || !newStudentPin) return alert("Xato"); await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() }); setNewStudentName(''); setNewStudentPin(''); fetchStudents(); };
   
@@ -252,7 +254,7 @@ const TeacherAdmin = () => {
                         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Mavzu nomi..." className="w-full p-3 border rounded-xl outline-none focus:ring-2 ring-blue-500 bg-gray-50"/>
                         <select value={assignmentType} onChange={e => setAssignmentType(e.target.value)} className="w-full p-3 border rounded-xl bg-purple-50 font-bold text-purple-800">
                             <option value="translation">Translation</option>
-                            <option value="dictation">🎧 Dictation (Diktant)</option> {/* 🔥 YANGI TYPE */}
+                            <option value="dictation">🎧 Dictation (Diktant)</option> 
                             <option value="essay_task1">Task 1 (Report)</option>
                             <option value="essay_task2">Task 2 (Essay)</option>
                             <option value="matching">Matching</option>
@@ -277,67 +279,43 @@ const TeacherAdmin = () => {
                     {/* DYNAMIC FORMS */}
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
                         
-                        {/* 🔥 DICTATION SEGMENTATOR 🔥 */}
+                        {/* 🔥 DICTATION (JSON PASTE MODE) 🔥 */}
                         {assignmentType === 'dictation' && (
                             <div className="space-y-4">
-                                <div className="bg-blue-100 p-4 rounded-xl border border-blue-200 text-blue-800 text-sm">
-                                    <h4 className="font-bold mb-2">🎤 Qanday ishlatiladi?</h4>
-                                    <ol className="list-decimal pl-4 space-y-1">
-                                        <li>Audio URL ni qo'ying (GitHub .mp3?raw=true).</li>
-                                        <li><b>"🔴 Segmentlash"</b> tugmasini bosing (ramka qizaradi).</li>
-                                        <li>Audioni o'ynating (Play).</li>
-                                        <li>Gap boshlanganda <b>SPACE</b> ni bosing.</li>
-                                        <li>Gap tugaganda yana <b>SPACE</b> ni bosing (Yangi qator ochiladi).</li>
-                                        <li>Qatorlarga matnni yozib chiqing.</li>
-                                    </ol>
-                                </div>
-
-                                <input value={audioUrl} onChange={e => setAudioUrl(e.target.value)} placeholder="Audio URL (mp3)..." className="w-full p-3 border rounded-xl"/>
+                                <input value={audioUrl} onChange={e => setAudioUrl(e.target.value)} placeholder="Audio URL (GitHub Raw Link)..." className="w-full p-3 border rounded-xl"/>
                                 
-                                <div className={`p-4 border-2 rounded-xl transition-colors ${isRecordingSegments ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'}`}>
-                                    <div className="flex items-center gap-4 mb-3">
-                                        <audio ref={audioRef} src={audioUrl} controls className="w-full" />
-                                        <button 
-                                            onClick={() => { setIsRecordingSegments(!isRecordingSegments); setSegmentStartTime(null); }}
-                                            className={`px-4 py-2 rounded-lg font-bold text-white whitespace-nowrap ${isRecordingSegments ? 'bg-red-600 animate-pulse' : 'bg-slate-800'}`}
-                                        >
-                                            {isRecordingSegments ? "🔴 STOP" : "⚫ Segmentlash"}
-                                        </button>
+                                <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="font-bold text-blue-800">JSON Kodni shu yerga tashlang:</label>
+                                        <button onClick={handleJsonImport} className="bg-slate-900 text-white px-4 py-1 rounded-lg text-sm font-bold">Import qilish ⬇️</button>
                                     </div>
-                                    
-                                    {/* Segment Start Indicator */}
-                                    {segmentStartTime !== null && (
-                                        <div className="text-center text-red-600 font-bold animate-pulse mb-2">
-                                            Yozilmoqda... (Tugatish uchun SPACE bosing)
-                                        </div>
-                                    )}
-
-                                    {/* Segments List */}
-                                    <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
-                                        {segments.map((seg, i) => (
-                                            <div key={i} className="flex gap-2 items-center">
-                                                <div className="bg-gray-200 px-2 py-2 rounded text-xs font-mono font-bold w-24 text-center">
-                                                    {seg.start}s - {seg.end}s
-                                                </div>
-                                                <input 
-                                                    placeholder={`Jumla #${i+1} matni...`}
-                                                    className="flex-1 p-2 border rounded-lg text-sm"
-                                                    value={seg.text}
-                                                    onChange={(e) => {
-                                                        const newSegs = [...segments];
-                                                        newSegs[i].text = e.target.value;
-                                                        setSegments(newSegs);
-                                                    }}
-                                                />
-                                                <button onClick={() => setSegments(segments.filter((_, idx) => idx !== i))} className="text-red-500 font-bold px-2">×</button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                    {segments.length === 0 && <p className="text-center text-gray-400 text-sm mt-2">Hali segmentlar yo'q.</p>}
+                                    <textarea 
+                                        value={jsonInput} 
+                                        onChange={e => setJsonInput(e.target.value)}
+                                        placeholder={`[\n  { "start": 0, "end": 5, "content": "Hello..." }\n]`}
+                                        className="w-full h-48 p-3 border rounded-xl font-mono text-xs"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Format: <code>const transcriptData = [...]</code> yoki shunchaki <code>[...]</code></p>
                                 </div>
+
+                                {/* Preview of imported segments */}
+                                {segments.length > 0 && (
+                                    <div className="space-y-2 mt-4">
+                                        <h4 className="font-bold text-green-700">Yuklangan jumlalar ({segments.length} ta):</h4>
+                                        <div className="max-h-40 overflow-y-auto bg-white p-2 rounded border">
+                                            {segments.map((seg, i) => (
+                                                <div key={i} className="text-xs border-b py-1 flex gap-2">
+                                                    <span className="font-bold text-gray-500">[{seg.start}-{seg.end}s]</span>
+                                                    <span>{seg.text}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
 
+                        {/* ... BOSHQA TYPE LAR ESKISI KABI QOLADI ... */}
                         {(assignmentType === 'translation' || assignmentType === 'matching') && (
                             <>
                                 <div className="flex gap-2 mb-4">
@@ -526,7 +504,7 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 5. RESULTS PAGE (Papkali) */}
+            {/* 5. RESULTS PAGE */}
             {activeTab === 'results' && (
                 <div className="bg-white p-4 lg:p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-6xl mx-auto">
                     
