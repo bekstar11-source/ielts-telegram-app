@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { doc, getDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import * as Diff from 'diff'; // Dictation uchun
+import * as Diff from 'diff'; 
 
 const LessonPage = () => {
   const { id } = useParams();
@@ -48,7 +48,7 @@ const LessonPage = () => {
     window.speechSynthesis.speak(utterance);
   };
 
-  // --- DICTATION LOGIC (O'zgarishsiz) ---
+  // --- DICTATION LOGIC ---
   const playSegment = () => {
     if (!lesson || !audioRef.current) return;
     const segment = lesson.segments[currentIndex];
@@ -161,7 +161,6 @@ const LessonPage = () => {
   // --- TRANSLATION VA BOSHQA TESTLAR UCHUN LOGIKA ---
   
   const handleNext = () => {
-    // 1. Hozirgi javobni shakllantirish
     let currentQ = "";
     let correctA = "";
     
@@ -176,65 +175,92 @@ const LessonPage = () => {
         correctA = "Gap Fill";
     }
 
-    // Javobni saqlash
     const newAnswerObj = {
         question: currentQ,
         correctTranslation: correctA,
         userAnswer: userAnswer, 
+        // Indexni saqlab qolamiz, keyin mapping qilish uchun
+        originalIndex: currentIndex 
     };
     
     const updatedAnswers = [...quizAnswers, newAnswerObj];
     setQuizAnswers(updatedAnswers);
     
-    // Inputni tozalash
     setUserAnswer('');
     
-    // Keyingisiga o'tish yoki tugatish
     const isSingleQ = lesson.assignmentType.includes('essay') || lesson.assignmentType === 'gap_fill';
     const maxIndex = (lesson.sentences?.length || 0) - 1;
 
     if (!isSingleQ && currentIndex < maxIndex) {
         setCurrentIndex(currentIndex + 1);
     } else {
-        // OXIRGISI BO'LSA - SUBMIT QILISH
         submitQuiz(updatedAnswers); 
     }
   };
 
-  // 🔥 SERVERGA YUBORISH VA FEEDBACK OLISH
+  // 🔥 YANGILANGAN SUBMIT (Qattiqqo'l & Bo'sh javob filtri)
   const submitQuiz = async (allAnswers) => {
     setIsChecking(true);
     try {
-      // Serverga so'rov
-      const response = await fetch('https://ielts-telegram-app.onrender.com/check-quiz', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            quizData: allAnswers,
-            direction: lesson.direction || 'en-uz',
-            assignmentType: lesson.assignmentType 
-        })
-      });
+      // 1. Faqat JAVOB YOZILGAN savollarni serverga yuboramiz
+      // Bo'sh javoblar uchun serverni bezovta qilmaymiz va ularga 0 qo'yamiz.
+      const answersToGrade = allAnswers.filter(a => a.userAnswer && a.userAnswer.trim().length > 0);
+      
+      // Serverga yuborish uchun ma'lumot tayyorlaymiz (ID bilan, qaytib kelganda tanish uchun)
+      const payload = answersToGrade.map((item, idx) => ({
+          ...item,
+          id: item.originalIndex // Asl ID sini saqlab qolamiz
+      }));
 
-      if (!response.ok) throw new Error("Serverda xatolik yuz berdi");
+      let aiResults = [];
+
+      // Agar tekshiradigan narsa bo'lsa, serverga yuboramiz
+      if (payload.length > 0) {
+          const response = await fetch('https://ielts-telegram-app.onrender.com/check-quiz', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                quizData: payload,
+                direction: lesson.direction || 'en-uz',
+                assignmentType: lesson.assignmentType 
+            })
+          });
+
+          if (!response.ok) throw new Error("Serverda xatolik yuz berdi");
+          aiResults = await response.json();
+      }
       
-      const aiResults = await response.json();
-      
-      // 🔥 FEEDBACKNI BIRLASHTIRISH
-      // Serverdan kelgan javoblarni (score, feedback) bizdagi savollar bilan birlashtiramiz
-      const fullHistory = allAnswers.map((item, index) => {
-        // Server array qaytaradi, index bo'yicha moslaymiz
-        const result = aiResults.find(r => r.id === index) || { score: 0, feedback: "Tahlil qilinmadi" };
+      // 2. Natijalarni birlashtirish (Qattiqqo'l logika)
+      const fullHistory = allAnswers.map((item) => {
+        // Agar javob bo'sh bo'lsa:
+        if (!item.userAnswer || item.userAnswer.trim().length === 0) {
+            return {
+                ...item,
+                score: 0,
+                feedback: null, // Feedback yo'q
+                showCorrect: false // To'g'ri javobni ko'rsatmaymiz
+            };
+        }
+
+        // Agar javob bo'lsa, AI natijasini qidiramiz
+        // Server array qaytaradi, biz yuborgan ID bo'yicha topamiz
+        // Eslatma: Server `id` qaytarmasligi mumkin, shuning uchun tartib bo'yicha moslashimiz kerak edi,
+        // lekin biz filter qildik. Shuning uchun server javobini payload indexiga moslaymiz.
+        
+        // Oddiyroq yechim: Serverga yuborgan tartibimizda javob keladi deb faraz qilamiz.
+        const gradedIndex = payload.findIndex(p => p.originalIndex === item.originalIndex);
+        const result = aiResults.find(r => r.id === gradedIndex) || { score: 0, feedback: "Tahlil qilinmadi" };
+
         return { 
             ...item, 
             score: result.score, 
-            feedback: result.feedback // Har bir gap uchun alohida feedback
+            feedback: result.feedback,
+            showCorrect: true // Javob yozgan bo'lsa, to'g'risini ko'rsin
         };
       });
 
       const totalScore = fullHistory.reduce((acc, curr) => acc + curr.score, 0);
       
-      // Firebasega saqlash
       await addDoc(collection(db, "results"), {
         studentName: localStorage.getItem('studentName'),
         studentGroup: localStorage.getItem('groupName'),
@@ -242,7 +268,7 @@ const LessonPage = () => {
         assignmentType: lesson.assignmentType,
         totalScore: totalScore,
         maxScore: lesson.assignmentType.includes('essay') ? 9 : (fullHistory.length * 5),
-        history: fullHistory, // To'liq history saqlanadi
+        history: fullHistory, 
         date: serverTimestamp()
       });
 
@@ -251,14 +277,12 @@ const LessonPage = () => {
     } catch (error) { 
         console.error(error);
         alert("Xatolik: " + error.message);
-        // Xato bo'lsa ham natijani (bahosiz) ko'rsatish mumkin, lekin hozircha qoldiramiz
     } 
     finally { setIsChecking(false); }
   };
 
   // --- RENDER CONTENT (UI) ---
   const renderContent = () => {
-    // Dictation UI
     if (lesson.assignmentType === 'dictation') {
         return (
             <div className="space-y-4">
@@ -281,7 +305,6 @@ const LessonPage = () => {
         );
     }
     
-    // Translation / Matching UI
     if (lesson.assignmentType === 'translation' || lesson.assignmentType === 'matching') {
         const q = lesson.sentences ? lesson.sentences[currentIndex] : {original: ""};
         return (
@@ -300,7 +323,6 @@ const LessonPage = () => {
         );
     }
 
-    // Essay va boshqalar
     if (lesson.assignmentType.includes('essay')) {
         return <div className="space-y-4">{lesson.imageUrl && <img src={lesson.imageUrl} className="w-full rounded-xl"/>}<div className="bg-blue-50 p-4 rounded-xl border-l-4 border-blue-500">{lesson.essayPrompt}</div><textarea className="w-full h-80 p-4 rounded-xl border" value={userAnswer} onChange={e=>setUserAnswer(e.target.value)} placeholder="Essay yozing..."/></div>;
     }
@@ -334,41 +356,49 @@ const LessonPage = () => {
                 <button onClick={() => navigate('/')} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold">Bosh Sahifa</button>
             </div>
 
-            {/* 🔥 HAR BIR GAP UCHUN ALOHIDA FEEDBACK KARTASI */}
             <div className="w-full max-w-2xl mx-auto space-y-4 pb-10">
-                {finalResults.map((item, index) => (
-                    <div key={index} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                        <div className="flex justify-between items-start mb-3">
-                            <h3 className="font-bold text-gray-700 text-sm bg-gray-100 px-2 py-1 rounded">Savol #{index + 1}</h3>
-                            <span className={`font-bold px-3 py-1 rounded-full text-xs ${item.score >= 4 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                {item.score} Ball
-                            </span>
-                        </div>
-                        
-                        <div className="mb-2">
-                            <p className="text-xs text-gray-400 font-bold uppercase">Savol:</p>
-                            <p className="text-gray-800 font-medium">{item.question}</p>
-                        </div>
+                {finalResults.map((item, index) => {
+                    const isSkipped = !item.showCorrect; // Javob yozilmagan
+                    
+                    return (
+                        <div key={index} className={`bg-white p-5 rounded-2xl shadow-sm border ${isSkipped ? 'border-red-100 bg-red-50' : 'border-gray-100'}`}>
+                            <div className="flex justify-between items-start mb-3">
+                                <h3 className="font-bold text-gray-700 text-sm bg-gray-100 px-2 py-1 rounded">Savol #{index + 1}</h3>
+                                <span className={`font-bold px-3 py-1 rounded-full text-xs ${isSkipped ? 'bg-red-200 text-red-800' : (item.score >= 4 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700')}`}>
+                                    {isSkipped ? "0 Ball (Yozilmadi)" : `${item.score} Ball`}
+                                </span>
+                            </div>
+                            
+                            <div className="mb-2">
+                                <p className="text-xs text-gray-400 font-bold uppercase">Savol:</p>
+                                <p className="text-gray-800 font-medium">{item.question}</p>
+                            </div>
 
-                        <div className="mb-2">
-                            <p className="text-xs text-gray-400 font-bold uppercase">Sizning javob:</p>
-                            <p className="text-blue-700 bg-blue-50 p-2 rounded-lg">{item.userAnswer || "(Javob yo'q)"}</p>
-                        </div>
+                            {!isSkipped && (
+                                <>
+                                    <div className="mb-2">
+                                        <p className="text-xs text-gray-400 font-bold uppercase">Sizning javob:</p>
+                                        <p className="text-blue-700 bg-blue-50 p-2 rounded-lg">{item.userAnswer}</p>
+                                    </div>
 
-                        <div className="mb-3">
-                            <p className="text-xs text-gray-400 font-bold uppercase">To'g'ri javob:</p>
-                            <p className="text-green-700">{item.correctTranslation}</p>
-                        </div>
+                                    <div className="mb-3">
+                                        <p className="text-xs text-gray-400 font-bold uppercase">To'g'ri javob:</p>
+                                        <p className="text-green-700">{item.correctTranslation}</p>
+                                    </div>
 
-                        {/* AI Feedback */}
-                        <div className="bg-yellow-50 p-3 rounded-xl border-l-4 border-yellow-400">
-                            <p className="text-xs text-yellow-800 font-bold uppercase mb-1">🤖 AI Izohi:</p>
-                            <p className="text-sm text-gray-700 leading-relaxed italic">
-                                {item.feedback || "Izoh mavjud emas."}
-                            </p>
+                                    <div className="bg-yellow-50 p-3 rounded-xl border-l-4 border-yellow-400">
+                                        <p className="text-xs text-yellow-800 font-bold uppercase mb-1">🤖 AI Izohi:</p>
+                                        <p className="text-sm text-gray-700 leading-relaxed italic">{item.feedback}</p>
+                                    </div>
+                                </>
+                            )}
+                            
+                            {isSkipped && (
+                                <p className="text-red-500 text-sm italic font-bold text-center mt-2">Javob yozilmaganligi sababli feedback va to'g'ri javob ko'rsatilmaydi.</p>
+                            )}
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
       );
