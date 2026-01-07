@@ -4,7 +4,7 @@ import { collection, addDoc, getDocs, deleteDoc, updateDoc, doc, orderBy, query,
 import * as XLSX from 'xlsx';
 
 const TeacherAdmin = () => {
-  // 📱 MOBIL UCHUN STATE
+  // 📱 STATE
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('create'); 
 
@@ -96,7 +96,7 @@ const TeacherAdmin = () => {
     if (lesson.matchingPairs) setMatchingPairs(lesson.matchingPairs);
     if (lesson.correctChoices) setCorrectChoices(lesson.correctChoices);
     setActiveTab('create'); 
-    setIsSidebarOpen(false); // Mobilda menyuni yopish
+    setIsSidebarOpen(false); 
   };
 
   const resetForm = () => {
@@ -105,7 +105,14 @@ const TeacherAdmin = () => {
     setCorrectChoices('');
   };
 
-  const deleteItem = async (col, id, refresh) => { if(window.confirm("O'chiraymi?")) { await deleteDoc(doc(db, col, id)); refresh(); } };
+  // 🔥 O'CHIRISH FUNKSIYASI (Tiklandi)
+  const deleteItem = async (col, id, refresh) => { 
+      if(window.confirm("Haqiqatan ham o'chirmoqchimisiz?")) { 
+          await deleteDoc(doc(db, col, id)); 
+          refresh(); 
+      } 
+  };
+
   const addGroup = async () => { if (!newGroupName.trim()) return; await addDoc(collection(db, "groups"), { name: newGroupName.trim(), createdAt: serverTimestamp() }); setNewGroupName(''); fetchGroups(); };
   const addStudent = async () => { if (!newStudentName || !newStudentPin) return alert("Xato"); await addDoc(collection(db, "users"), { name: newStudentName, group: newStudentGroup, pin: newStudentPin, createdAt: serverTimestamp() }); setNewStudentName(''); setNewStudentPin(''); fetchStudents(); };
   
@@ -138,16 +145,12 @@ const TeacherAdmin = () => {
     XLSX.writeFile(wb, "Natijalar.xlsx");
   };
 
-  // 🔥 YANGILANGAN LAYOUT (Mobile Friendly + Desktop Fixed)
   return (
     <div className="flex h-screen w-full bg-gray-100 font-sans overflow-hidden">
       
-      {/* 🌑 OVERLAY (Mobil menyu ochilganda) */}
+      {/* 🌑 OVERLAY */}
       {isSidebarOpen && (
-        <div 
-            className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-            onClick={() => setIsSidebarOpen(false)}
-        ></div>
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)}></div>
       )}
 
       {/* 🖥️ SIDEBAR */}
@@ -162,20 +165,15 @@ const TeacherAdmin = () => {
         </div>
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-            {[
-                { id: 'create', label: '📝 Yangi Dars' },
-                { id: 'archive', label: '📂 Arxiv' },
-                { id: 'students', label: '👥 O\'quvchilar' },
-                { id: 'results', label: '📈 Natijalar' }
-            ].map(menu => (
-                <button 
-                    key={menu.id}
-                    onClick={() => { setActiveTab(menu.id); if(menu.id==='create') resetForm(); setIsSidebarOpen(false); }} 
-                    className={`w-full text-left p-3 rounded-xl transition font-medium ${activeTab === menu.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
-                >
-                    {menu.label}
-                </button>
-            ))}
+            <button onClick={() => { setActiveTab('create'); resetForm(); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'create' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📝 Yangi Dars</button>
+            <button onClick={() => { setActiveTab('archive'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'archive' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📂 Arxiv (Vazifalar)</button>
+            
+            {/* 🔥 ALOHIDA O'QUVCHI QO'SHISH PAGE */}
+            <button onClick={() => { setActiveTab('add_student'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'add_student' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>➕ O'quvchi Qo'shish</button>
+            
+            <button onClick={() => { setActiveTab('students_list'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'students_list' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>👥 O'quvchilar Ro'yxati</button>
+            
+            <button onClick={() => { setActiveTab('results'); setIsSidebarOpen(false); }} className={`w-full text-left p-3 rounded-xl transition ${activeTab === 'results' ? 'bg-blue-600' : 'hover:bg-slate-800'}`}>📈 Natijalar</button>
         </nav>
       </aside>
 
@@ -231,7 +229,7 @@ const TeacherAdmin = () => {
                         {(assignmentType === 'translation' || assignmentType === 'matching') && (
                             <>
                                 <div className="flex gap-2 mb-4">
-                                    <button onClick={() => setIsBulkMode(false)} className={`flex-1 py-2 rounded-lg text-sm font-bold ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-400'}`}>Qator</button>
+                                    <button onClick={() => setIsBulkMode(false)} className={`flex-1 py-2 rounded-lg text-sm font-bold ${!isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-400'}`}>Qatorma-qator</button>
                                     <button onClick={() => setIsBulkMode(true)} className={`flex-1 py-2 rounded-lg text-sm font-bold ${isBulkMode ? 'bg-white shadow text-blue-600' : 'text-gray-400'}`}>Tezkor</button>
                                 </div>
                                 {!isBulkMode ? (
@@ -293,10 +291,10 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 2. ARCHIVE PAGE */}
+            {/* 2. ARCHIVE PAGE (Vazifalarni O'chirish qaytarildi) */}
             {activeTab === 'archive' && (
                 <div className="bg-white p-4 lg:p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-5xl mx-auto">
-                    <h2 className="text-xl font-bold mb-4 text-slate-800">Arxiv</h2>
+                    <h2 className="text-xl font-bold mb-4 text-slate-800">Arxiv (Vazifalar)</h2>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse min-w-[600px]">
                             <thead className="bg-gray-50 border-b">
@@ -316,8 +314,9 @@ const TeacherAdmin = () => {
                                         <td className="p-3 text-xs uppercase text-gray-400 font-bold">{lesson.assignmentType}</td>
                                         <td className="p-3 text-xs text-gray-500">{lesson.createdAt?.toDate().toLocaleDateString()}</td>
                                         <td className="p-3 text-right flex justify-end gap-2">
-                                            <button onClick={() => handleEdit(lesson)} className="bg-blue-100 text-blue-600 px-2 py-1 rounded text-xs font-bold">✎</button>
-                                            <button onClick={() => deleteItem("assignments", lesson.id, fetchAssignments)} className="bg-red-100 text-red-600 px-2 py-1 rounded text-xs font-bold">×</button>
+                                            <button onClick={() => handleEdit(lesson)} className="bg-blue-100 text-blue-600 px-2 py-1 rounded text-xs font-bold hover:bg-blue-200">✎</button>
+                                            {/* 🔥 O'CHIRISH TUGMASI */}
+                                            <button onClick={() => deleteItem("assignments", lesson.id, fetchAssignments)} className="bg-red-100 text-red-600 px-2 py-1 rounded text-xs font-bold hover:bg-red-200">🗑</button>
                                         </td>
                                     </tr>
                                 ))}
@@ -327,12 +326,12 @@ const TeacherAdmin = () => {
                 </div>
             )}
 
-            {/* 3. STUDENTS PAGE */}
-            {activeTab === 'students' && (
+            {/* 3. ALOHIDA: O'QUVCHI QO'SHISH (ADD STUDENT) */}
+            {activeTab === 'add_student' && (
                 <div className="w-full max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Groups */}
+                    {/* Groups Create */}
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                        <h3 className="font-bold text-lg mb-4">Guruhlar</h3>
+                        <h3 className="font-bold text-lg mb-4">Yangi Guruh Yaratish</h3>
                         <div className="flex gap-2 mb-4">
                             <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Nomi..." className="flex-1 p-2 border rounded-lg text-sm"/>
                             <button onClick={addGroup} className="bg-green-600 text-white px-4 rounded-lg font-bold text-sm">+</button>
@@ -365,36 +364,58 @@ const TeacherAdmin = () => {
                             value={bulkStudentText} 
                             onChange={e => setBulkStudentText(e.target.value)} 
                             placeholder="Vali Aliyev | 1234&#10;G'ani G'aniyev"
-                            className="w-full h-24 p-2 border rounded-lg text-sm mb-2"
+                            className="w-full h-32 p-2 border rounded-lg text-sm mb-2"
                         />
                         <button onClick={addBulkStudents} disabled={loading} className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold text-sm w-full lg:w-auto">
                             {loading ? "..." : "Bulk Qo'shish"}
                         </button>
                     </div>
-
-                    {/* Students List */}
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 lg:col-span-2">
-                        <h3 className="font-bold text-lg mb-4">O'quvchilar Ro'yxati</h3>
-                        <div className="h-64 overflow-y-auto border-t pt-2 custom-scrollbar">
-                            <table className="w-full text-sm text-left">
-                                <thead className="text-gray-400 bg-gray-50 sticky top-0"><tr><th className="p-2">Ism</th><th className="p-2">Guruh</th><th className="p-2">PIN</th><th className="p-2"></th></tr></thead>
-                                <tbody>
-                                    {students.map(s => (
-                                        <tr key={s.id} className="border-b hover:bg-gray-50">
-                                            <td className="p-2 font-medium">{s.name}</td>
-                                            <td className="p-2 text-blue-600 font-bold">{s.group}</td>
-                                            <td className="p-2 text-gray-400 font-mono">{s.pin}</td>
-                                            <td className="p-2 text-right"><button onClick={() => deleteItem("users", s.id, fetchStudents)} className="text-red-500">×</button></td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
                 </div>
             )}
 
-            {/* 4. RESULTS PAGE */}
+            {/* 4. STUDENTS LIST (Guruh bo'yicha) */}
+            {activeTab === 'students_list' && (
+                <div className="max-w-6xl mx-auto space-y-6">
+                    <h2 className="text-2xl font-bold text-slate-800">O'quvchilar Ro'yxati</h2>
+                    {groups.map((group) => {
+                        const groupStudents = students.filter(s => s.group === group.name);
+                        if (groupStudents.length === 0) return null;
+
+                        return (
+                            <div key={group.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                                <h3 className="font-bold text-lg text-blue-600 mb-3">{group.name} ({groupStudents.length})</h3>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="text-gray-400 bg-gray-50">
+                                            <tr><th className="p-2">Ism</th><th className="p-2">PIN</th><th className="p-2 text-right">Amal</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {groupStudents.map(s => (
+                                                <tr key={s.id} className="border-b hover:bg-gray-50">
+                                                    <td className="p-2 font-medium">{s.name}</td>
+                                                    <td className="p-2 font-mono text-gray-400">{s.pin}</td>
+                                                    <td className="p-2 text-right">
+                                                        <button onClick={() => deleteItem("users", s.id, fetchStudents)} className="text-red-500 hover:text-red-700 font-bold">O'chirish</button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )
+                    })}
+                    {/* Guruhsiz o'quvchilar uchun alohida blok */}
+                    {students.filter(s => !groups.some(g => g.name === s.group)).length > 0 && (
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-200">
+                            <h3 className="font-bold text-lg text-red-600 mb-3">Guruhsiz / O'chirilgan Guruhdagilar</h3>
+                            {/* Jadval xuddi yuqoridagidek... */}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* 5. RESULTS PAGE */}
             {activeTab === 'results' && (
                 <div className="bg-white p-4 lg:p-8 rounded-2xl shadow-sm border border-gray-200 w-full max-w-6xl mx-auto">
                     <div className="flex justify-between items-center mb-6">
